@@ -400,11 +400,21 @@ const TEMPLATES_DEFAULT = {
   promptSistema: PROMPT_SISTEMA_DEFAULT,
   regoleOggetto:'OGGETTO: massimo 6-7 parole, in minuscolo, curioso ma sobrio. Niente nomi azienda forzati, niente punti esclamativi.',
   regoleCorpo:'CORPO: massimo ~130 parole. Apri con un aggancio concreto, una sola domanda di chiusura. Niente parolone.',
-  disiscrizione:'Se non desidera ricevere altre comunicazioni, risponda a questa mail con un NO e non la contatterò più.'
+  disiscrizione:'Se non desidera ricevere altre comunicazioni, risponda a questa mail con un NO e non la contatterò più.',
+  logoUrl:'',
+  firmaTesto:'Il Team FlowLine\nFlowLine | Automazioni e Agenti AI per Aziende\nT: +39 3492977533 | E: info@flowline.it\nW: www.flowline.it',
+  firmaHtml:`<table cellpadding="0" cellspacing="0" style="font-family:Arial,Helvetica,sans-serif;color:#222222"><tr>
+<td style="padding-right:14px;border-right:2px solid #e2e2e2;vertical-align:middle">{logo_block}</td>
+<td style="padding-left:14px;vertical-align:middle;font-size:13px;line-height:1.5">
+<div style="font-weight:bold;font-size:15px;color:#1a1a1a">Il Team FlowLine</div>
+<div style="margin:2px 0 6px"><a href="https://www.flowline.it" style="color:#1a4fd6;text-decoration:none;font-weight:bold">Info &amp; Contatti</a> <span style="color:#aaa">|</span> <b>FlowLine</b> <span style="color:#aaa">|</span> Automazioni e Agenti AI per Aziende</div>
+<div style="color:#555"><b>T:</b> +39 3492977533 &nbsp;|&nbsp; <b>E:</b> <a href="mailto:info@flowline.it" style="color:#555;text-decoration:none">info@flowline.it</a></div>
+<div style="color:#555;margin-top:2px"><b>W:</b> <a href="https://www.flowline.it" style="color:#1a4fd6;text-decoration:none">www.flowline.it</a> &nbsp;|&nbsp; <a href="https://www.linkedin.com" style="color:#1a4fd6;text-decoration:none">LinkedIn</a> &nbsp;|&nbsp; <a href="https://www.instagram.com" style="color:#1a4fd6;text-decoration:none">Instagram</a></div>
+</td></tr></table>`
 };
 
 let state = {
-  config: load(LS.config, {googleClientId:'', googleApiKey:'', anthropicKey:'', supabaseUrl:'', supabaseKey:'', sheetId:'', sheetTab:'', testMode:true, saltaWeekend:true, oraInizio:9, oraFine:18, maxAlGiorno:10, autoStopReply:true, eurRate:EUR_DEFAULT, autoSync:true, autoSyncSec:60}),
+  config: load(LS.config, {googleClientId:'', googleApiKey:'', anthropicKey:'', supabaseUrl:'', supabaseKey:'', sheetId:'', sheetTab:'', testMode:true, saltaWeekend:true, oraInizio:9, oraFine:18, maxAlGiorno:10, autoStopReply:true, eurRate:EUR_DEFAULT, autoSync:true, autoSyncSec:60, formatoHtml:false}),
   contacts: load(LS.contacts, []),
   cadence: load(LS.cadence, STEPS_DEFAULT),
   templates: load(LS.templates, TEMPLATES_DEFAULT),
@@ -419,9 +429,13 @@ if(state.config.autoSyncSec==null) state.config.autoSyncSec=60;
 if(state.config.googleApiKey==null) state.config.googleApiKey='';
 if(state.config.supabaseUrl==null) state.config.supabaseUrl='';
 if(state.config.supabaseKey==null) state.config.supabaseKey='';
+if(state.config.formatoHtml==null) state.config.formatoHtml=false;
 if(!state.templates.promptSistema) state.templates.promptSistema=PROMPT_SISTEMA_DEFAULT;
 if(state.templates.regoleOggetto==null) state.templates.regoleOggetto=TEMPLATES_DEFAULT.regoleOggetto;
 if(state.templates.regoleCorpo==null) state.templates.regoleCorpo=TEMPLATES_DEFAULT.regoleCorpo;
+if(state.templates.firmaTesto==null) state.templates.firmaTesto=TEMPLATES_DEFAULT.firmaTesto;
+if(state.templates.firmaHtml==null) state.templates.firmaHtml=TEMPLATES_DEFAULT.firmaHtml;
+if(state.templates.logoUrl==null) state.templates.logoUrl='';
 
 /* ---------- storage helpers ---------- */
 function load(k,def){try{const v=localStorage.getItem(k);return v?JSON.parse(v):def}catch(e){return def}}
@@ -607,19 +621,57 @@ function buildRaw({to,from,subject,body,inReplyTo,references}){
   const msg=headers.join('\r\n')+'\r\n\r\n'+body;
   return b64url(utf8b64(msg));
 }
+// multipart/alternative: testo semplice + HTML (firma e formattazione)
+function buildRawHtml({to,from,subject,text,html,inReplyTo,references}){
+  const b='flo'+Math.random().toString(36).slice(2,12);
+  const headers=[
+    'From: '+from,
+    'To: '+to,
+    'Subject: '+encSubject(subject),
+    'MIME-Version: 1.0',
+    'Content-Type: multipart/alternative; boundary="'+b+'"',
+  ];
+  if(inReplyTo){headers.push('In-Reply-To: '+inReplyTo);headers.push('References: '+(references||inReplyTo));}
+  const parts=[
+    '--'+b,
+    'Content-Type: text/plain; charset="UTF-8"','',
+    text,
+    '--'+b,
+    'Content-Type: text/html; charset="UTF-8"','',
+    html,
+    '--'+b+'--',''
+  ].join('\r\n');
+  const msg=headers.join('\r\n')+'\r\n\r\n'+parts;
+  return b64url(utf8b64(msg));
+}
+function textToHtml(t){return esc(t).replace(/\r?\n/g,'<br>');}
+function buildSigHtml(){
+  const url=(state.templates.logoUrl||'').trim();
+  const logo = url?`<img src="${escAttr(url)}" alt="logo" width="60" style="display:block;border:0">`:'';
+  return (state.templates.firmaHtml||'').replace(/{logo_block}/g,logo).replace(/{logo_url}/g,url);
+}
 
 async function sendEmailGmail(c, step, subject, body){
-  const fullBody = body + '\n\n— \n' + (c.disiscrizione||state.templates.disiscrizione);
+  const unsub=(c.disiscrizione||state.templates.disiscrizione);
+  const sigText=state.templates.firmaTesto||'';
+  const textBody = body + (sigText?('\n\n'+sigText):'') + '\n\n— \n' + unsub;
   if(state.config.testMode){
     await new Promise(r=>setTimeout(r,500));
     return {threadId:c.threadId||('sim_'+c.id), messageId:c.messageId||('<sim-'+c.id+'-'+step+'@flowline>'), simulated:true};
   }
-  const payload={raw:buildRaw({
-    to:c.email, from:state.google.email, subject,
-    body:fullBody,
-    inReplyTo: step>0?c.messageId:null,
-    references: step>0?c.messageId:null
-  })};
+  const inReplyTo = step>0?c.messageId:null;
+  let raw;
+  if(state.config.formatoHtml){
+    const sigHtml=buildSigHtml();
+    const htmlBody=`<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;line-height:1.55">`
+      + textToHtml(body)
+      + (sigHtml?('<br><br>'+sigHtml):'')
+      + `<br><br><span style="color:#9a9a9a;font-size:12px">${esc(unsub)}</span></div>`;
+    raw=buildRawHtml({to:c.email, from:state.google.email, subject, text:textBody, html:htmlBody, inReplyTo, references:inReplyTo});
+  } else {
+    raw=buildRaw({to:c.email, from:state.google.email, subject, body:textBody, inReplyTo, references:inReplyTo});
+  }
+  const payload={raw};
   if(step>0 && c.threadId) payload.threadId=c.threadId;
   const sent=await gfetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send',{method:'POST',body:JSON.stringify(payload)});
   // fetch message to read Message-ID header + threadId
@@ -1409,7 +1461,7 @@ function codaCard(c,idx,cap){
       </div>
       <div class="preview-note">
         <svg style="width:13px;height:13px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v3"/></svg>
-        In calce verrà aggiunta la riga di disiscrizione automaticamente.
+        In calce vengono aggiunte automaticamente ${state.config.formatoHtml?'la <b>firma</b> e':''} la riga di disiscrizione${state.config.formatoHtml?' · invio in <b>HTML</b>':' · invio in testo'}.
       </div>
     </div>
     <div class="qc-foot">
@@ -1851,6 +1903,17 @@ function openCadence(){
       </div>
       <div class="form-row"><label>Riga di disiscrizione</label><input id="tp-dis" value="${escAttr(tp.disiscrizione)}"></div>
 
+      <div class="section-h" style="margin:6px 0 0"><h3 style="font-size:14px">Firma & formato email</h3><div class="line"></div></div>
+      <label class="toggle ${state.config.formatoHtml?'on':''}" id="tp-html" onclick="this.classList.toggle('on')"><span class="sw"></span>
+        <span><b>Invia in formato HTML</b><br><span class="hint">Necessario per la firma con logo e link colorati. Se spento, le email partono in solo testo (spesso meglio per la consegna a freddo).</span></span></label>
+      <div class="form-row"><label>URL del logo <span class="hint">(immagine pubblica, es. caricata sul tuo repo GitHub Pages)</span></label>
+        <input id="tp-logo" value="${escAttr(tp.logoUrl||'')}" placeholder="https://callforusit-aam.github.io/.../logo.png"></div>
+      <div class="form-row"><label>Firma — versione HTML <span class="hint">(usa <span class="kbd">{logo_block}</span> dove vuoi il logo)</span></label>
+        <textarea id="tp-sightml" style="min-height:130px;font-family:'JetBrains Mono',monospace;font-size:12px">${esc(tp.firmaHtml||'')}</textarea>
+        <button class="btn sm ghost" style="align-self:flex-start" onclick="previewSig()">Anteprima firma</button></div>
+      <div class="form-row"><label>Firma — versione testo <span class="hint">(usata in modalità solo testo e come fallback)</span></label>
+        <textarea id="tp-sigtesto" style="min-height:80px">${esc(tp.firmaTesto||'')}</textarea></div>
+
       <div class="section-h" style="margin:6px 0 0"><h3 style="font-size:14px">Prompt di generazione AI</h3><div class="line"></div></div>
       <div class="helptip">Questo è il prompt di sistema che guida l'AI. Puoi usare i segnaposto <span class="kbd">{azienda}</span> <span class="kbd">{mittente}</span> <span class="kbd">{tono}</span> <span class="kbd">{regole_oggetto}</span> <span class="kbd">{regole_corpo}</span>: vengono sostituiti automaticamente. Deve sempre chiedere una risposta in JSON con <span class="kbd">oggetto</span> e <span class="kbd">corpo</span>.</div>
       <div class="form-row"><label>Prompt di sistema</label>
@@ -1870,6 +1933,24 @@ function openCadence(){
     </div>
   </div>`);
 }
+function previewSig(){
+  const url=(document.getElementById('tp-logo')?.value||'').trim();
+  const html=(document.getElementById('tp-sightml')?.value||'');
+  const logo=url?`<img src="${escAttr(url)}" alt="logo" width="60" style="display:block;border:0">`:'<span style="color:#bbb;font-size:11px">[logo: aggiungi un URL]</span>';
+  const rendered=html.replace(/{logo_block}/g,logo).replace(/{logo_url}/g,url);
+  const ov=document.createElement('div');
+  ov.className='overlay';ov.style.zIndex='60';
+  ov.onclick=(e)=>{if(e.target===ov)ov.remove();};
+  ov.innerHTML=`<div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-h"><h3>Anteprima firma</h3><div class="x" onclick="this.closest('.overlay').remove()">✕</div></div>
+    <div class="modal-b">
+      <div class="helptip">Così apparirà in fondo alle email inviate in formato HTML.</div>
+      <div style="background:#ffffff;border:1px solid var(--border);border-radius:10px;padding:18px">${rendered}</div>
+    </div>
+    <div class="modal-f"><button class="btn primary" onclick="this.closest('.overlay').remove()">Chiudi</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
 function addStep(){state.cadence.push({nome:'Follow-up '+state.cadence.length,offset:(state.cadence.at(-1)?.offset||0)+7,angolo:''});openCadence()}
 function rmStep(i){state.cadence.splice(i,1);openCadence()}
 function saveCadence(){
@@ -1881,6 +1962,10 @@ function saveCadence(){
   state.templates.mittente=document.getElementById('tp-mit').value;
   state.templates.azienda=document.getElementById('tp-az').value;
   state.templates.disiscrizione=document.getElementById('tp-dis').value;
+  state.config.formatoHtml=document.getElementById('tp-html').classList.contains('on');
+  state.templates.logoUrl=document.getElementById('tp-logo').value.trim();
+  state.templates.firmaHtml=document.getElementById('tp-sightml').value;
+  state.templates.firmaTesto=document.getElementById('tp-sigtesto').value;
   state.templates.promptSistema=document.getElementById('tp-prompt').value;
   state.templates.regoleOggetto=document.getElementById('tp-rogg').value;
   state.templates.regoleCorpo=document.getElementById('tp-rcorpo').value;
