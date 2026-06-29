@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FlowLine Outbound — Gestione campagne</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
   --bg:#f6f6f3; --surface:#ffffff; --surface-2:#fbfbf9; --border:#e6e4dd;
@@ -281,6 +283,7 @@ textarea.body{min-height:150px;line-height:1.55;white-space:pre-wrap;font-size:1
         <span id="spendGen" class="spend-gen">0 gen.</span>
       </button>
       <div class="conn-pill"><span class="dot" id="gdot"></span><span id="gtxt">Google non connesso</span></div>
+      <div class="conn-pill"><span class="dot" id="sdot"></span><span id="stxt">Database locale</span></div>
       <button class="mini" onclick="openSettings()">
         <svg class="ico" style="width:15px;height:15px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Impostazioni
@@ -320,7 +323,7 @@ textarea.body{min-height:150px;line-height:1.55;white-space:pre-wrap;font-size:1
    ============================================================ */
 const LS = {
   config:'flo_config', contacts:'flo_contacts', cadence:'flo_cadence',
-  templates:'flo_templates', theme:'flo_theme', usage:'flo_usage'
+  templates:'flo_templates', theme:'flo_theme', usage:'flo_usage', gauth:'flo_gauth'
 };
 const MODEL = 'claude-sonnet-4-6';
 const PRICE = {in:3, out:15}; // USD per 1M token — Claude Sonnet 4.6
@@ -339,21 +342,26 @@ const TEMPLATES_DEFAULT = {
 };
 
 let state = {
-  config: load(LS.config, {googleClientId:'', anthropicKey:'', sheetId:'', testMode:true, saltaWeekend:true, oraInizio:9, oraFine:18, maxAlGiorno:10, autoStopReply:true, eurRate:EUR_DEFAULT}),
+  config: load(LS.config, {googleClientId:'', googleApiKey:'', anthropicKey:'', supabaseUrl:'', supabaseKey:'', sheetId:'', sheetTab:'', testMode:true, saltaWeekend:true, oraInizio:9, oraFine:18, maxAlGiorno:10, autoStopReply:true, eurRate:EUR_DEFAULT, autoSync:true, autoSyncSec:60}),
   contacts: load(LS.contacts, []),
   cadence: load(LS.cadence, STEPS_DEFAULT),
   templates: load(LS.templates, TEMPLATES_DEFAULT),
   usage: load(LS.usage, {input:0, output:0, gen:0, since:new Date().toISOString().slice(0,10)}),
   view: 'dashboard',
-  google: {token:null, email:null, expires:0},
+  google: load(LS.gauth, {token:null, email:null, expires:0}),
   filter: 'tutti', search:'',
 };
 if(state.config.eurRate==null) state.config.eurRate=EUR_DEFAULT;
+if(state.config.autoSync==null) state.config.autoSync=true;
+if(state.config.autoSyncSec==null) state.config.autoSyncSec=60;
+if(state.config.googleApiKey==null) state.config.googleApiKey='';
+if(state.config.supabaseUrl==null) state.config.supabaseUrl='';
+if(state.config.supabaseKey==null) state.config.supabaseKey='';
 
 /* ---------- storage helpers ---------- */
 function load(k,def){try{const v=localStorage.getItem(k);return v?JSON.parse(v):def}catch(e){return def}}
 function save(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){toast('Spazio di archiviazione pieno','err')}}
-function persist(){save(LS.config,state.config);save(LS.contacts,state.contacts);save(LS.cadence,state.cadence);save(LS.templates,state.templates);save(LS.usage,state.usage)}
+function persist(){save(LS.config,state.config);save(LS.contacts,state.contacts);save(LS.cadence,state.cadence);save(LS.templates,state.templates);save(LS.usage,state.usage);schedulePush();}
 
 /* ---------- cost / usage ---------- */
 function costUSD(u){return (u.input/1e6*PRICE.in)+(u.output/1e6*PRICE.out)}
@@ -441,6 +449,13 @@ let tokenClient=null;
 const SCOPES='https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file';
 
 function googleReady(){return state.google.token && Date.now()<state.google.expires}
+function saveGAuth(){save(LS.gauth,{token:state.google.token,email:state.google.email,expires:state.google.expires})}
+let _refreshTimer=null;
+function scheduleRefresh(){
+  if(_refreshTimer)clearTimeout(_refreshTimer);
+  const ms=state.google.expires-Date.now()-5*60*1000; // 5 min prima della scadenza
+  if(ms>0)_refreshTimer=setTimeout(()=>refreshToken(),ms);
+}
 
 function initGoogle(){
   if(!state.config.googleClientId) return;
@@ -450,9 +465,10 @@ function initGoogle(){
       client_id: state.config.googleClientId,
       scope: SCOPES,
       callback: (resp)=>{
-        if(resp.error){toast('Autorizzazione Google annullata','err');return}
+        if(resp.error){if(resp.error!=='interaction_required'&&resp.error!=='access_denied')toast('Autorizzazione Google: '+resp.error,'warn');renderConn();return}
         state.google.token=resp.access_token;
-        state.google.expires=Date.now()+(resp.expires_in||3000)*1000;
+        state.google.expires=Date.now()+((resp.expires_in||3600)*1000);
+        saveGAuth();scheduleRefresh();
         afterGoogleAuth();
       }
     });
@@ -464,18 +480,39 @@ function connectGoogle(){
   if(!tokenClient){toast('Google Identity non caricato, riprova','err');return}
   tokenClient.requestAccessToken({prompt: state.google.email?'':'consent'});
 }
+// rinnovo silenzioso: nessun popup se la sessione Google è attiva e il consenso è già stato dato
+function refreshToken(){
+  if(!tokenClient){initGoogle();}
+  if(!tokenClient)return;
+  try{ tokenClient.requestAccessToken({prompt:''}); }catch(e){}
+}
 async function afterGoogleAuth(){
   try{
     const r=await gfetch('https://gmail.googleapis.com/gmail/v1/users/me/profile');
-    state.google.email=r.emailAddress;
+    state.google.email=r.emailAddress;saveGAuth();
     toast('Connesso come '+r.emailAddress,'ok');
     renderConn(); render();
+    if(state.config.sheetId) pullFromSheet({silent:true}).catch(()=>{});
+    startAutoSync();
   }catch(e){toast('Errore profilo Gmail','err')}
 }
 async function gfetch(url,opts={}){
-  if(!googleReady()) throw new Error('Google non autorizzato');
+  if(!googleReady()){ // prova un refresh silenzioso al volo
+    await new Promise(res=>{
+      const prev=tokenClient&&tokenClient.callback;
+      if(!tokenClient){res();return}
+      let done=false;
+      tokenClient.callback=(resp)=>{
+        if(resp&&resp.access_token){state.google.token=resp.access_token;state.google.expires=Date.now()+((resp.expires_in||3600)*1000);saveGAuth();scheduleRefresh();}
+        tokenClient.callback=prev;done=true;res();
+      };
+      try{tokenClient.requestAccessToken({prompt:''});}catch(e){res();}
+      setTimeout(()=>{if(!done){tokenClient.callback=prev;res();}},3000);
+    });
+  }
+  if(!googleReady()) throw new Error('Sessione Google scaduta, premi Riconnetti');
   const r=await fetch(url,{...opts,headers:{'Authorization':'Bearer '+state.google.token,'Content-Type':'application/json',...(opts.headers||{})}});
-  if(r.status===401){state.google.token=null;throw new Error('Sessione Google scaduta, riconnetti')}
+  if(r.status===401){state.google.token=null;state.google.expires=0;saveGAuth();renderConn();throw new Error('Sessione Google scaduta, riconnetti')}
   if(!r.ok){const t=await r.text();throw new Error('Google '+r.status+': '+t.slice(0,160))}
   return r.json();
 }
@@ -548,35 +585,260 @@ async function checkReplies(){
 /* =======================================================
    GOOGLE SHEET SYNC (stato contatti)
    ======================================================= */
-const SHEET_COLS=['id','azienda','sede','email','ruolo','settore','tipo_asset','stato','step','data_ultimo_invio','anchor_date','ha_risposto','thread_id','message_id'];
+const SHEET_COLS=['id','azienda','sede','email','ruolo','settore','tipo_asset','oggetto','corpo','stato','step','data_ultimo_invio','anchor_date','ha_risposto','thread_id','message_id'];
+function colLetter(n){return String.fromCharCode(64+n)} // 16 -> 'P'
+const LASTCOL=colLetter(SHEET_COLS.length);
+let _autoSyncTimer=null;
+
+async function sheetTab(id){
+  if(state.config.sheetTab) return state.config.sheetTab;
+  try{
+    const meta=await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties.title`);
+    const t=(meta.sheets&&meta.sheets[0]&&meta.sheets[0].properties.title)||'Contatti';
+    state.config.sheetTab=t;persist();return t;
+  }catch(e){return 'Contatti'}
+}
 async function ensureSheet(){
   if(!googleReady()) throw new Error('Google non connesso');
   if(state.config.sheetId) return state.config.sheetId;
   const r=await gfetch('https://sheets.googleapis.com/v4/spreadsheets',{method:'POST',body:JSON.stringify({
-    properties:{title:'FlowLine Outbound — stato contatti'},
+    properties:{title:'FlowLine Outbound — contatti & stato'},
     sheets:[{properties:{title:'Contatti'}}]
   })});
-  state.config.sheetId=r.spreadsheetId;persist();renderConn();
-  // header
+  state.config.sheetId=r.spreadsheetId;state.config.sheetTab='Contatti';persist();renderConn();
   await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${r.spreadsheetId}/values/Contatti!A1?valueInputOption=RAW`,{method:'PUT',body:JSON.stringify({values:[SHEET_COLS]})});
   return r.spreadsheetId;
 }
 function contactToRow(c){
   const st=statusOf(c).label;
-  return [c.id,c.azienda,c.sede,c.email,c.ruolo,c.settore,c.tipoAsset,st,String(c.step||0),c.dataUltimoInvio||'',c.anchorDate||'',c.haRisposto?'sì':'no',c.threadId||'',c.messageId||''];
+  const d0=getDraft(c,0);
+  return [c.id,c.azienda,c.sede,c.email,c.ruolo,c.settore,c.tipoAsset,
+    c.oggettoBase||d0.oggetto||'', c.corpoBase||'',
+    st,String(c.step||0),c.dataUltimoInvio||'',c.anchorDate||'',c.haRisposto?'sì':'no',c.threadId||'',c.messageId||''];
 }
-async function syncToSheet(){
-  if(!googleReady()){toast('Connetti Google per sincronizzare','warn');return}
+
+// LEGGE i nuovi lead dal foglio e li importa (Sheet -> app)
+async function pullFromSheet(opts={}){
+  const silent=opts.silent;
+  if(!googleReady()){if(!silent)toast('Connetti Google per sincronizzare','warn');return 0}
+  if(!state.config.sheetId){if(!silent)toast('Nessun foglio collegato. Premi "Sheet" una volta per crearlo.','warn');return 0}
+  let rows;
   try{
-    const id=await ensureSheet();
-    const values=[SHEET_COLS,...state.contacts.map(contactToRow)];
-    await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Contatti!A1:N${values.length}?valueInputOption=RAW`,{method:'PUT',body:JSON.stringify({values})});
-    toast('Stato sincronizzato sul Google Sheet','ok');
-  }catch(e){toast('Sync fallita: '+e.message,'err')}
+    const tab=await sheetTab(state.config.sheetId);
+    const r=await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${state.config.sheetId}/values/${encodeURIComponent(tab)}!A1:Z10000`);
+    rows=r.values||[];
+  }catch(e){if(!silent)toast('Lettura foglio fallita: '+e.message,'err');return 0}
+  if(rows.length<2) return 0;
+  const map=guessMap(rows[0]);
+  if(map.email==null){if(!silent)toast('Nel foglio non trovo una colonna email','warn');return 0}
+  const have=new Set(state.contacts.map(c=>(c.email||'').toLowerCase()));
+  let added=0;
+  for(let i=1;i<rows.length;i++){
+    const row=rows[i];const g=f=>map[f]!=null?String(row[map[f]]??'').trim():'';
+    const email=g('email');
+    if(!email||!email.includes('@')||have.has(email.toLowerCase())) continue;
+    have.add(email.toLowerCase());
+    state.contacts.push(mkContact({
+      azienda:g('azienda'),sede:g('sede'),email,ruolo:g('ruolo'),settore:g('settore'),
+      tipoAsset:g('tipoAsset'),oggettoBase:g('oggetto'),corpoBase:g('corpo'),
+      disiscrizione:g('disiscrizione')||state.templates.disiscrizione,
+    }));
+    added++;
+  }
+  if(added){persist();render()}
+  if(!silent) toast(added?`${added} nuovi contatti importati dal foglio`:'Foglio già allineato, nessun nuovo contatto','ok');
+  else if(added) toast(`${added} nuovi contatti dal foglio`,'ok');
+  return added;
+}
+
+// SCRIVE lo stato di tutti i contatti sul foglio (app -> Sheet)
+async function pushToSheet(){
+  const id=await ensureSheet();
+  const tab=await sheetTab(id);
+  // ripulisce le righe dati per evitare residui, poi riscrive tutto
+  await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(tab)}!A2:Z10000:clear`,{method:'POST',body:'{}'});
+  const values=[SHEET_COLS,...state.contacts.map(contactToRow)];
+  await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(tab)}!A1:${LASTCOL}${values.length}?valueInputOption=RAW`,{method:'PUT',body:JSON.stringify({values})});
+}
+
+// Sincronizzazione completa: prima importa i nuovi lead, poi riallinea lo stato
+async function syncToSheet(opts={}){
+  if(!googleReady()){if(!opts.silent)toast('Connetti Google per sincronizzare','warn');return}
+  try{
+    await pullFromSheet({silent:true});
+    await pushToSheet();
+    if(!opts.silent)toast('Sincronizzato con il Google Sheet','ok');
+  }catch(e){if(!opts.silent)toast('Sync fallita: '+e.message,'err')}
+}
+
+// poller automatico: importa i nuovi contatti aggiunti al foglio
+function startAutoSync(){
+  stopAutoSync();
+  if(!state.config.autoSync) return;
+  const sec=Math.max(20,state.config.autoSyncSec||60);
+  _autoSyncTimer=setInterval(()=>{ if(googleReady())pullFromSheet({silent:true}); }, sec*1000);
+}
+function stopAutoSync(){if(_autoSyncTimer){clearInterval(_autoSyncTimer);_autoSyncTimer=null}}
+
+function linkExistingSheet(input){
+  const v=(input||'').trim();if(!v){return}
+  const m=v.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  const id=m?m[1]:v;
+  state.config.sheetId=id;state.config.sheetTab='';persist();renderConn();
+  toast('Foglio collegato — sincronizzo...','ok');
+  syncToSheet();
 }
 function openSheet(){
   if(state.config.sheetId) window.open('https://docs.google.com/spreadsheets/d/'+state.config.sheetId,'_blank');
   else toast('Nessun Sheet collegato ancora','warn');
+}
+
+/* =======================================================
+   SUPABASE — database condiviso sempre online
+   ======================================================= */
+let supa=null, _supaChan=null, _pushTimer=null, _suppressPush=false;
+function supaConfigured(){return !!(state.config.supabaseUrl && state.config.supabaseKey)}
+function supaReady(){return !!supa}
+function initSupabase(){
+  if(!supaConfigured()){supa=null;return}
+  if(typeof window.supabase==='undefined'){setTimeout(initSupabase,400);return}
+  try{
+    supa=window.supabase.createClient(state.config.supabaseUrl, state.config.supabaseKey, {auth:{persistSession:false}});
+    supaLoad().then(()=>supaSubscribe());
+  }catch(e){console.error(e);toast('Supabase: '+e.message,'err')}
+}
+async function supaLoad(){
+  if(!supa)return;
+  try{
+    const {data,error}=await supa.from('contacts').select('id,data').order('updated_at',{ascending:true});
+    if(error)throw error;
+    if(data && data.length){
+      _suppressPush=true;
+      state.contacts=data.map(r=>r.data).filter(Boolean);
+      save(LS.contacts,state.contacts);
+      _suppressPush=false;
+      renderConn();render();
+      toast(state.contacts.length+' contatti dal database condiviso','ok');
+    } else if(state.contacts.length){
+      // DB vuoto ma ho contatti in locale: li carico io nel database
+      await pushAllToSupabase();
+      renderConn();
+      toast('Database inizializzato con i contatti locali','ok');
+    } else {
+      renderConn();
+    }
+  }catch(e){toast('Supabase load: '+e.message,'err')}
+}
+function supaSubscribe(){
+  if(!supa)return;
+  if(_supaChan){supa.removeChannel(_supaChan);_supaChan=null;}
+  _supaChan=supa.channel('contacts-rt')
+    .on('postgres_changes',{event:'*',schema:'public',table:'contacts'},payload=>{
+      const t=payload.eventType;
+      if(t==='DELETE'){
+        const id=payload.old&&payload.old.id;
+        if(id){state.contacts=state.contacts.filter(c=>c.id!==id);save(LS.contacts,state.contacts);softRender();}
+        return;
+      }
+      const row=payload.new; if(!row||!row.data)return;
+      const inc=row.data; const cur=state.contacts.find(c=>c.id===inc.id);
+      if(cur && JSON.stringify(cur)===JSON.stringify(inc)) return; // è il nostro stesso dato, ignora
+      _suppressPush=true;
+      if(cur)Object.assign(cur,inc); else state.contacts.push(inc);
+      save(LS.contacts,state.contacts);
+      _suppressPush=false;
+      softRender();
+    })
+    .subscribe();
+}
+// re-render che NON disturba ciò che stai scrivendo nella Coda
+function softRender(){
+  const a=document.activeElement;
+  if(a&&(a.tagName==='TEXTAREA'||a.tagName==='INPUT')&&a.closest('#content')){ _pendingRender=true; return; }
+  render();
+}
+let _pendingRender=false;
+document.addEventListener('focusout',e=>{ if(_pendingRender){_pendingRender=false;setTimeout(()=>render(),50);} });
+
+function schedulePush(){
+  if(!supaReady()||_suppressPush)return;
+  if(_pushTimer)clearTimeout(_pushTimer);
+  _pushTimer=setTimeout(()=>pushAllToSupabase(),700);
+}
+async function pushAllToSupabase(){
+  if(!supaReady())return;
+  try{
+    const rows=state.contacts.map(c=>({id:c.id, email:(c.email||'').toLowerCase(), data:c, updated_at:new Date().toISOString()}));
+    if(!rows.length)return;
+    const {error}=await supa.from('contacts').upsert(rows,{onConflict:'id'});
+    if(error)throw error;
+  }catch(e){console.warn('supabase push',e.message)}
+}
+async function supaDelete(id){
+  if(!supaReady())return;
+  try{await supa.from('contacts').delete().eq('id',id);}catch(e){console.warn('supabase delete',e.message)}
+}
+const SUPA_SQL=`-- Esegui una volta nell'editor SQL di Supabase
+create table if not exists contacts (
+  id text primary key,
+  email text,
+  data jsonb not null,
+  updated_at timestamptz default now()
+);
+alter table contacts enable row level security;
+create policy "full access anon" on contacts for all using (true) with check (true);
+alter publication supabase_realtime add table contacts;`;
+
+/* ---- selezione file sorgente (Google Picker) + tab ---- */
+function openPicker(){
+  if(!googleReady()){toast('Connetti prima Google','warn');connectGoogle();return}
+  if(!state.config.googleApiKey){toast('Serve la Google API key per il selettore Drive (Impostazioni)','warn');return}
+  if(typeof gapi==='undefined'){toast('API Google non ancora caricate, riprova tra un attimo','err');return}
+  gapi.load('picker',()=>{
+    try{
+      const view=new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS).setSelectFolderEnabled(false);
+      const picker=new google.picker.PickerBuilder()
+        .addView(view)
+        .setOAuthToken(state.google.token)
+        .setDeveloperKey(state.config.googleApiKey)
+        .setCallback(data=>{
+          if(data.action===google.picker.Action.PICKED && data.docs && data.docs[0]){
+            const doc=data.docs[0];
+            state.config.sheetId=doc.id;state.config.sheetTab='';persist();renderConn();
+            const inp=document.getElementById('set-sheet');if(inp)inp.value=doc.id;
+            const nm=document.getElementById('sheet-name');if(nm)nm.textContent='Collegato: '+(doc.name||doc.id);
+            toast('File selezionato: '+(doc.name||doc.id),'ok');
+            loadTabs().then(()=>pullFromSheet());
+          }
+        }).build();
+      picker.setVisible(true);
+    }catch(e){toast('Picker: '+e.message,'err')}
+  });
+}
+async function loadTabs(){
+  if(!state.config.sheetId){toast('Nessun file selezionato','warn');return}
+  if(!googleReady()){toast('Connetti Google','warn');return}
+  try{
+    const meta=await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${state.config.sheetId}?fields=properties.title,sheets.properties.title`);
+    const tabs=(meta.sheets||[]).map(s=>s.properties.title);
+    if(!state.config.sheetTab && tabs.length){state.config.sheetTab=tabs[0];persist();}
+    const sel=document.getElementById('set-tab');
+    if(sel&&tabs.length)sel.innerHTML=tabs.map(t=>`<option ${t===state.config.sheetTab?'selected':''}>${esc(t)}</option>`).join('');
+    const row=document.getElementById('tab-row');if(row)row.style.display='';
+    const nm=document.getElementById('sheet-name');if(nm)nm.textContent='Collegato: '+esc(meta.properties?.title||state.config.sheetId)+' · '+tabs.length+' tab';
+  }catch(e){toast('Lettura fogli fallita: '+e.message,'err')}
+}
+function copySupaSQL(){navigator.clipboard.writeText(SUPA_SQL).then(()=>toast('SQL copiato','ok')).catch(()=>toast('Copia non riuscita','err'))}
+function showSupaSQL(){
+  modal(`<div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-h"><h3>SQL di setup Supabase</h3><div class="x" onclick="openSettings()">✕</div></div>
+    <div class="modal-b">
+      <div class="helptip">Nel tuo progetto Supabase apri <b>SQL Editor → New query</b>, incolla ed esegui una volta. Crea la tabella <code>contacts</code> e attiva gli aggiornamenti in tempo reale.</div>
+      <textarea class="body" style="min-height:240px;font-family:'JetBrains Mono',monospace;font-size:12px" readonly>${esc(SUPA_SQL)}</textarea>
+      <button class="btn sm" onclick="copySupaSQL()">Copia SQL</button>
+    </div>
+    <div class="modal-f"><button class="btn primary" onclick="openSettings()">← Torna alle impostazioni</button></div>
+  </div>`);
 }
 
 /* =======================================================
@@ -743,6 +1005,9 @@ function renderConn(){
   const g=googleReady();
   document.getElementById('gdot').className='dot'+(g?' on':(state.config.googleClientId?' warn':''));
   document.getElementById('gtxt').textContent=g?(state.google.email||'Google connesso'):(state.config.googleClientId?'Google da autorizzare':'Google non connesso');
+  const sdot=document.getElementById('sdot'),stxt=document.getElementById('stxt');
+  if(sdot){sdot.className='dot'+(supaReady()?' on':(supaConfigured()?' warn':''));}
+  if(stxt){stxt.textContent=supaReady()?'Database online':(supaConfigured()?'Database in connessione…':'Database locale');}
   document.getElementById('testBanner').style.display=state.config.testMode?'flex':'none';
 }
 function go(v){state.view=v;state.search='';state.filter='tutti';closeRail();render()}
@@ -756,7 +1021,7 @@ function render(){
     ta.innerHTML=`
       <button class="btn sm ghost" onclick="checkReplies()" title="Controlla risposte nei thread">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Risposte</button>
-      <button class="btn sm ghost" onclick="syncToSheet()" title="Salva stato sul Google Sheet">
+      <button class="btn sm ghost" onclick="syncToSheet()" title="Importa i nuovi lead dal foglio e salva lo stato">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M8 13h8 M8 17h8 M8 9h2"/></svg>Sheet</button>
       <button class="btn sm primary" onclick="pickFile()">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14 M5 12h14"/></svg>Importa</button>`;
@@ -1154,7 +1419,7 @@ function openContact(id){
 function editC(id,f,v){const c=state.contacts.find(x=>x.id===id);if(c){c[f]=v;persist()}}
 function toggleReplied(id){const c=state.contacts.find(x=>x.id===id);if(c){c.haRisposto=!c.haRisposto;persist();openContact(id);render()}}
 function resetSeq(id){const c=state.contacts.find(x=>x.id===id);if(c){c.step=0;c.anchorDate=null;c.dataUltimoInvio=null;c.haRisposto=false;c.history=[];c.drafts={};c.threadId=null;c.messageId=null;persist();openContact(id);render();toast('Sequenza azzerata','warn')}}
-function deleteContact(id){if(!confirm('Eliminare questo contatto?'))return;state.contacts=state.contacts.filter(c=>c.id!==id);persist();closeModal();render()}
+function deleteContact(id){if(!confirm('Eliminare questo contatto?'))return;state.contacts=state.contacts.filter(c=>c.id!==id);supaDelete(id);persist();closeModal();render()}
 
 /* ---- settings ---- */
 function openSettings(){
@@ -1169,10 +1434,45 @@ function openSettings(){
       <div class="form-row"><label>Google OAuth Client ID</label>
         <input id="set-gid" value="${escAttr(cf.googleClientId)}" placeholder="xxxxxx.apps.googleusercontent.com">
         <span class="hint">Da Google Cloud Console → Credenziali → ID client OAuth (tipo: Web). Aggiungi l'origine del tuo sito GitHub Pages tra le origini JavaScript autorizzate.</span></div>
-      <div style="display:flex;gap:9px;align-items:center">
+      <div class="form-row"><label>Google API key <span class="hint">(facoltativa — abilita la scelta del file da Drive)</span></label>
+        <input id="set-gak" value="${escAttr(cf.googleApiKey)}" placeholder="AIza..."></div>
+      <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
         <button class="btn sm" onclick="saveGid()">${googleReady()?'Riconnetti':'Connetti Google'}</button>
         ${googleReady()?`<span class="chip reply"><span class="d"></span>${esc(state.google.email||'connesso')}</span>`:''}
         ${cf.sheetId?`<button class="btn sm ghost" onclick="openSheet()">Apri Google Sheet</button>`:''}
+      </div>
+
+      <div class="section-h" style="margin:4px 0 0"><h3 style="font-size:14px">Sorgente contatti — Google Sheet</h3><div class="line"></div></div>
+      <label class="toggle ${cf.autoSync?'on':''}" id="set-autosync"><span class="sw"></span>
+        <span><b>Importa automaticamente i nuovi contatti dal foglio</b><br><span class="hint">Ogni minuto l'app legge il foglio scelto: le righe con una email nuova diventano contatti pronti per la sequenza.</span></span></label>
+      <div class="form-row"><label>File sorgente</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn sm primary" onclick="openPicker()"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Scegli da Google Drive</button>
+          <button class="btn sm ghost" onclick="loadTabs()">Aggiorna fogli</button>
+        </div>
+        <span class="hint" id="sheet-name">${cf.sheetId?('Collegato: '+esc(cf.sheetId.slice(0,18))+'… · tab "'+esc(cf.sheetTab||'?')+'"'):'Nessun file selezionato'}</span></div>
+      <div class="form-row"><label>Oppure incolla URL/ID del foglio</label>
+        <div style="display:flex;gap:8px">
+          <input id="set-sheet" value="${escAttr(cf.sheetId)}" placeholder="https://docs.google.com/spreadsheets/d/...">
+          <button class="btn sm" onclick="linkExistingSheet(document.getElementById('set-sheet').value)">Collega</button>
+        </div></div>
+      <div class="form-row" id="tab-row" style="${cf.sheetId?'':'display:none'}"><label>Tab del foglio da leggere</label>
+        <select id="set-tab" onchange="state.config.sheetTab=this.value;persist();pullFromSheet()"><option>${esc(cf.sheetTab||'Contatti')}</option></select></div>
+      <div style="display:flex;gap:9px">
+        <button class="btn sm" onclick="pullFromSheet()">Importa ora</button>
+        <button class="btn sm ghost" onclick="syncToSheet()">Sincronizza tutto</button>
+      </div>
+      <div class="helptip">Per <b>togliere</b> un contatto, eliminalo dall'app (non solo la riga del foglio, che verrebbe riscritta).</div>
+
+      <div class="section-h" style="margin:4px 0 0"><h3 style="font-size:14px">Database condiviso — Supabase</h3><div class="line"></div></div>
+      <div class="helptip">Con Supabase i contatti e lo stato sono <b>sempre online</b> e condivisi: tutto il team vede gli stessi dati, aggiornati in tempo reale. Senza Supabase l'app funziona comunque, ma i dati restano sul singolo browser.</div>
+      <div class="two-col">
+        <div class="form-row"><label>Project URL</label><input id="set-supaurl" value="${escAttr(cf.supabaseUrl)}" placeholder="https://xxxx.supabase.co"></div>
+        <div class="form-row"><label>anon public key</label><input id="set-supakey" type="password" value="${escAttr(cf.supabaseKey)}" placeholder="eyJhbGci..."></div>
+      </div>
+      <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+        ${supaReady()?`<span class="chip reply"><span class="d"></span>Database connesso</span>`:`<span class="chip da"><span class="d"></span>Non connesso</span>`}
+        <button class="btn sm ghost" onclick="showSupaSQL()">Mostra SQL di setup</button>
       </div>
 
       <div class="section-h" style="margin:4px 0 0"><h3 style="font-size:14px">Generazione AI</h3><div class="line"></div></div>
@@ -1197,7 +1497,8 @@ function openSettings(){
       </div>
     </div>
   </div>`);
-  document.querySelectorAll('#set-test,#set-week,#set-stop').forEach(el=>el.onclick=()=>el.classList.toggle('on'));
+  document.querySelectorAll('#set-test,#set-week,#set-stop,#set-autosync').forEach(el=>el.onclick=()=>el.classList.toggle('on'));
+  if(googleReady()&&state.config.sheetId)loadTabs();
 }
 function saveGid(){
   const v=document.getElementById('set-gid').value.trim();
@@ -1206,15 +1507,22 @@ function saveGid(){
 }
 function saveSettings(){
   const cf=state.config;
+  const prevSupaUrl=cf.supabaseUrl, prevSupaKey=cf.supabaseKey;
   cf.googleClientId=document.getElementById('set-gid').value.trim();
+  cf.googleApiKey=document.getElementById('set-gak').value.trim();
   cf.anthropicKey=document.getElementById('set-akey').value.trim();
+  cf.supabaseUrl=document.getElementById('set-supaurl').value.trim().replace(/\/$/,'');
+  cf.supabaseKey=document.getElementById('set-supakey').value.trim();
   cf.maxAlGiorno=+document.getElementById('set-max').value||10;
   cf.oraInizio=+document.getElementById('set-oi').value||9;
   cf.oraFine=+document.getElementById('set-of').value||18;
   cf.saltaWeekend=document.getElementById('set-week').classList.contains('on');
   cf.autoStopReply=document.getElementById('set-stop').classList.contains('on');
   cf.testMode=document.getElementById('set-test').classList.contains('on');
-  persist();closeModal();initGoogle();render();toast('Impostazioni salvate','ok');
+  cf.autoSync=document.getElementById('set-autosync').classList.contains('on');
+  persist();closeModal();initGoogle();startAutoSync();
+  if(cf.supabaseUrl!==prevSupaUrl||cf.supabaseKey!==prevSupaKey){supa=null;initSupabase();}
+  render();toast('Impostazioni salvate','ok');
 }
 
 /* ---- cadence & templates ---- */
@@ -1319,7 +1627,14 @@ document.addEventListener('keydown',e=>{
   const th=load(LS.theme,null)||(window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
   document.documentElement.setAttribute('data-theme',th);
   initGoogle();
+  // ripristina la sessione Google salvata; se scaduta, tenta un rinnovo silenzioso
+  if(state.config.googleClientId){
+    if(googleReady()){ scheduleRefresh(); setTimeout(()=>afterGoogleAuth(),300); }
+    else if(state.google.email){ setTimeout(()=>refreshToken(),800); }
+  }
+  initSupabase();
   render();
+  startAutoSync();
 })();
 </script>
 </body>
