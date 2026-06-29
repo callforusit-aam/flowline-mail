@@ -184,7 +184,34 @@ textarea.body{min-height:150px;line-height:1.55;white-space:pre-wrap;font-size:1
 .agenda-row .az{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agenda-row .when{font-size:12px;color:var(--muted);white-space:nowrap}
 
-/* empty */
+/* calendar grid */
+.cal-bar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.cal-title{flex:1;text-align:center;display:flex;flex-direction:column;line-height:1.25}
+.cal-title b{font-size:15px;text-transform:capitalize}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.cal-cell{background:var(--surface);border:1px solid var(--border);border-radius:10px;min-height:140px;display:flex;flex-direction:column;overflow:hidden}
+.cal-cell.today{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.cal-cell.wknd{background:var(--surface-2)}
+.cal-cell.past{opacity:.62}
+.cal-cell-h{display:flex;align-items:center;gap:6px;padding:7px 9px;border-bottom:1px solid var(--border)}
+.cal-dname{font-size:11px;color:var(--muted);font-weight:600;text-transform:capitalize}
+.cal-dnum{font-size:14px;font-weight:700;margin-left:auto}
+.cal-cell.today .cal-dnum{color:var(--accent)}
+.cal-count{font-size:10px;font-weight:700;background:var(--accent-soft);color:var(--accent);min-width:17px;height:17px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px;margin-left:0}
+.cal-count.late{background:var(--late-soft);color:var(--late)}
+.cal-items{padding:6px;display:flex;flex-direction:column;gap:4px;overflow:auto;flex:1}
+.cal-item{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer;font-size:12px;background:var(--surface-2)}
+.cal-item:hover{background:var(--accent-soft)}
+.cal-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.cal-az{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.cal-more{font-size:11px;color:var(--muted);padding:2px 6px;font-weight:600}
+.cal-empty{font-size:13px;color:var(--faint);text-align:center;padding:8px 0}
+.cal-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:14px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--muted);font-weight:500}
+.cal-leg{display:flex;align-items:center;gap:6px}
+@media(max-width:840px){
+  .cal-grid{grid-template-columns:repeat(7,minmax(110px,1fr));overflow-x:auto;padding-bottom:6px}
+  .cal-cell{min-height:120px}
+}
 .empty{text-align:center;padding:48px 20px;color:var(--muted)}
 .empty .ico{width:40px;height:40px;margin:0 auto 14px;opacity:.4}
 .empty h4{font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px}
@@ -335,10 +362,21 @@ const STEPS_DEFAULT = [
   {nome:'Follow-up 2', offset:7, angolo:'Penultimo tentativo. Cambia angolo: spostati sul beneficio principale, una riga, bassa pressione.'},
   {nome:'Follow-up 3', offset:14, angolo:'Ultimo contatto (break-up). Chiude con gentilezza, lascia la porta aperta, nessuna insistenza.'},
 ];
+const PROMPT_SISTEMA_DEFAULT = `Sei un assistente che scrive email di outreach B2B a freddo in italiano per {azienda}.
+Tono richiesto: {tono}
+Regole generali: testo semplice (no HTML, no markdown, no liste puntate). Nessun oggetto sensazionalistico o spammy. Una sola call-to-action. Non inventare dati specifici sull'azienda destinataria che non conosci. Firma a nome di {mittente}.
+
+{regole_oggetto}
+{regole_corpo}
+
+Rispondi SOLO con JSON valido, nessun testo prima o dopo, nel formato: {"oggetto":"...","corpo":"..."}`;
 const TEMPLATES_DEFAULT = {
   tono:'Diretto, umano, conversazionale, in italiano. Frasi brevi. Niente gergo da marketing, niente superlativi, nessun "soluzione innovativa". Si firma "Giuseppe Romano — FlowLine".',
   mittente:'Giuseppe Romano',
   azienda:'FlowLine',
+  promptSistema: PROMPT_SISTEMA_DEFAULT,
+  regoleOggetto:'OGGETTO: massimo 6-7 parole, in minuscolo, curioso ma sobrio. Niente nomi azienda forzati, niente punti esclamativi.',
+  regoleCorpo:'CORPO: massimo ~130 parole. Apri con un aggancio concreto, una sola domanda di chiusura. Niente parolone.',
   disiscrizione:'Se non desidera ricevere altre comunicazioni, risponda a questa mail con un NO e non la contatterò più.'
 };
 
@@ -358,6 +396,9 @@ if(state.config.autoSyncSec==null) state.config.autoSyncSec=60;
 if(state.config.googleApiKey==null) state.config.googleApiKey='';
 if(state.config.supabaseUrl==null) state.config.supabaseUrl='';
 if(state.config.supabaseKey==null) state.config.supabaseKey='';
+if(!state.templates.promptSistema) state.templates.promptSistema=PROMPT_SISTEMA_DEFAULT;
+if(state.templates.regoleOggetto==null) state.templates.regoleOggetto=TEMPLATES_DEFAULT.regoleOggetto;
+if(state.templates.regoleCorpo==null) state.templates.regoleCorpo=TEMPLATES_DEFAULT.regoleCorpo;
 
 /* ---------- storage helpers ---------- */
 function load(k,def){try{const v=localStorage.getItem(k);return v?JSON.parse(v):def}catch(e){return def}}
@@ -422,6 +463,11 @@ function isDue(c){ // due today or overdue, action pending
   if(c.haRisposto) return false;
   const na=nextAction(c); if(!na) return false;
   return na.dueDate<=today();
+}
+function dueToday(c){ // azione prevista esattamente oggi (incluse le prime email pronte)
+  if(c.haRisposto) return false;
+  const na=nextAction(c); if(!na) return false;
+  return sameDay(na.dueDate,today());
 }
 function isLate(c){
   if(c.haRisposto) return false;
@@ -879,10 +925,12 @@ async function generateEmail(c, step){
   if(!key) throw new Error('Manca la chiave API Anthropic (Impostazioni)');
   const cad=state.cadence[step];
   const prevSent=c.history.filter(h=>h.step<step).map(h=>`[${state.cadence[h.step]?.nome}] Oggetto: ${h.oggetto}\n${h.corpo}`).join('\n\n---\n\n');
-  const sys=`Sei un assistente che scrive email di outreach B2B a freddo in italiano per ${state.templates.azienda}.
-Tono richiesto: ${state.templates.tono}
-Regole: testo semplice (no HTML, no markdown, no liste puntate). Nessun oggetto sensazionalistico o spammy. Una sola call-to-action. Massimo ~130 parole nel corpo. Non inventare dati specifici sull'azienda destinataria che non conosci. Firma a nome di ${state.templates.mittente}.
-Rispondi SOLO con JSON valido, nessun testo prima o dopo, nel formato: {"oggetto":"...","corpo":"..."}`;
+  const sys=(state.templates.promptSistema||PROMPT_SISTEMA_DEFAULT)
+    .replace(/{azienda}/g, state.templates.azienda||'')
+    .replace(/{mittente}/g, state.templates.mittente||'')
+    .replace(/{tono}/g, state.templates.tono||'')
+    .replace(/{regole_oggetto}/g, state.templates.regoleOggetto||'')
+    .replace(/{regole_corpo}/g, state.templates.regoleCorpo||'');
   const ctx=`Destinatario:
 - Azienda: ${c.azienda||'n/d'}
 - Sede: ${c.sede||'n/d'}
@@ -983,11 +1031,11 @@ const NAV=[
   {id:'calendario',label:'Calendario',icon:'M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18'},
 ];
 function renderNav(){
-  const due=state.contacts.filter(isDue).length;
+  const todayN=state.contacts.filter(dueToday).length;
   const late=state.contacts.filter(isLate).length;
   document.getElementById('nav').innerHTML=NAV.map(n=>{
     let badge='';
-    if(n.id==='coda'&&due) badge=`<span class="badge${late?' late':''}">${due}</span>`;
+    if(n.id==='coda'&&(todayN||late)) badge=`<span class="badge${late?' late':''}">${todayN||late}</span>`;
     return `<button class="${state.view===n.id?'active':''}" onclick="go('${n.id}')">
       <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${n.icon}"/></svg>
       <span>${n.label}</span>${badge}</button>`;
@@ -1071,7 +1119,7 @@ function viewDashboard(){
   if(!state.contacts.length) return emptyState();
   const t=today();
   const tot=state.contacts.length;
-  const due=state.contacts.filter(isDue).length;
+  const due=state.contacts.filter(dueToday).length;
   const late=state.contacts.filter(isLate).length;
   const waiting=state.contacts.filter(c=>!c.haRisposto && (c.step||0)>0 && (c.step||0)<state.cadence.length && !isDue(c)).length;
   const replied=state.contacts.filter(c=>c.haRisposto).length;
@@ -1116,7 +1164,7 @@ function viewDashboard(){
     <button class="btn sm primary" onclick="go('coda')">Vai alla coda →</button></div>
   <div class="card"><div class="table-wrap" style="border:none">
     <table><tbody>
-    ${state.contacts.filter(isDue).slice(0,6).map(c=>{const na=nextAction(c);const st=statusOf(c);
+    ${state.contacts.filter(dueToday).slice(0,6).map(c=>{const na=nextAction(c);const st=statusOf(c);
       return `<tr onclick="go('coda')" style="cursor:pointer">
         <td class="az">${esc(c.azienda)}</td>
         <td class="email-cell">${esc(c.email)}</td>
@@ -1127,20 +1175,43 @@ function viewDashboard(){
 }
 
 /* ---------- CODA INVIO ---------- */
+let _showLate=false;
+function toggleLate(){_showLate=!_showLate;render()}
 function viewCoda(){
   if(!state.contacts.length) return emptyState();
-  const list=state.contacts.filter(isDue).sort((a,b)=>{
-    const la=isLate(a),lb=isLate(b);if(la!==lb)return la?-1:1;return (a.step||0)-(b.step||0);
-  });
   const cap=state.config.maxAlGiorno||999;
-  if(!list.length) return `<div class="empty"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
-    <h4>Coda vuota</h4><p>Nessuna email da inviare oggi. Il prossimo follow-up comparirà qui alla data prevista.</p>
+  const todayList=state.contacts.filter(dueToday).sort((a,b)=>(a.step||0)-(b.step||0));
+  const lateList=state.contacts.filter(isLate).sort((a,b)=>nextAction(a).dueDate-nextAction(b).dueDate);
+
+  if(!todayList.length && !lateList.length) return `<div class="empty"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
+    <h4>Niente da inviare oggi</h4><p>Nessun contatto previsto per oggi. I prossimi follow-up compariranno qui alla data prevista.</p>
     <button class="btn primary" onclick="go('calendario')">Vedi il calendario</button></div>`;
-  let head=`<div class="filters">
-    <div class="helptip" style="flex:1">${list.length} email pronte${cap<list.length?` · limite consigliato ${cap}/giorno`:''}. Revisiona, poi premi <b>Invia</b> su ognuna.</div>
-    <button class="btn sm" onclick="generateAllDrafts()"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v4 M3 5h4 M19 17v4 M17 19h4 M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>Genera mancanti</button>
-  </div>`;
-  return head + list.map((c,idx)=>codaCard(c,idx,cap)).join('');
+
+  let html='';
+  // banner ritardi (fuori dal "solo oggi", ma recuperabili a richiesta)
+  if(lateList.length){
+    html+=`<div class="card" style="padding:12px 16px;margin-bottom:14px;border-left:3px solid var(--late);display:flex;align-items:center;gap:12px">
+      <svg style="width:18px;height:18px;color:var(--late)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4 M12 16h.01"/></svg>
+      <div style="flex:1"><b>${lateList.length} follow-up in ritardo</b><div class="email-cell">erano previsti nei giorni scorsi e non sono ancora partiti.</div></div>
+      <button class="btn sm" onclick="toggleLate()">${_showLate?'Nascondi':'Mostra e recupera'}</button>
+    </div>`;
+    if(_showLate){
+      html+=`<div class="section-h"><h3 style="color:var(--late)">In ritardo</h3><span class="count">${lateList.length}</span><div class="line"></div></div>`;
+      html+=lateList.map((c,i)=>codaCard(c,i,9999)).join('');
+    }
+  }
+
+  // intestazione di oggi
+  const dlabel=today().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'});
+  html+=`<div class="section-h"><h3>Oggi · ${dlabel}</h3><span class="count">${todayList.length} contatti</span><div class="line"></div>
+    ${todayList.length?`<button class="btn sm" onclick="generateAllDrafts()"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v4 M3 5h4 M19 17v4 M17 19h4 M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>Genera mancanti</button>`:''}</div>`;
+  if(!todayList.length){
+    html+=`<div class="email-cell" style="padding:6px 2px 14px">Nessun contatto previsto per oggi.${lateList.length&&!_showLate?' Hai però dei follow-up in ritardo qui sopra.':''}</div>`;
+  } else {
+    if(cap<todayList.length) html+=`<div class="helptip" style="margin-bottom:12px">Hai impostato un limite di <b>${cap} email/giorno</b>: oltre questa soglia i contatti sono marcati "oltre limite", così resti nel ritmo.</div>`;
+    html+=todayList.map((c,idx)=>codaCard(c,idx,cap)).join('');
+  }
+  return html;
 }
 function codaCard(c,idx,cap){
   const na=nextAction(c);const step=na.stepIndex;const d=getDraft(c,step);const st=statusOf(c);
@@ -1209,7 +1280,7 @@ async function regen(id,step){
   }catch(e){toast(e.message,'err');btn.disabled=false;btn.innerHTML=old}
 }
 async function generateAllDrafts(){
-  const list=state.contacts.filter(isDue);
+  const list=state.contacts.filter(c=>dueToday(c)||(_showLate&&isLate(c)));
   if(!state.config.anthropicKey){toast('Manca la chiave Anthropic','warn');openSettings();return}
   let done=0,batchCost=0;toast('Genero '+list.length+' bozze...','warn');
   for(const c of list){
@@ -1293,47 +1364,70 @@ function setFilter(f){state.filter=f;render();const s=document.getElementById('s
 function statusKey(c){return statusOf(c).key}
 
 /* ---------- CALENDARIO ---------- */
+let _calWeek=0; // offset settimane rispetto a questa
+function calNav(d){_calWeek+=d;render()}
+function calToday(){_calWeek=0;render()}
+function startOfWeek(d){const x=new Date(d);const g=(x.getDay()+6)%7;return addDays(x,-g);} // lunedì
 function viewCalendario(){
   if(!state.contacts.length) return emptyState();
   const t=today();
-  const items=[];
-  state.contacts.forEach(c=>{const na=nextAction(c);if(na)items.push({c,na})});
-  const late=items.filter(x=>x.na.dueDate<t).sort((a,b)=>a.na.dueDate-b.na.dueDate);
-  const todayItems=items.filter(x=>sameDay(x.na.dueDate,t));
-  // group future by date for next 21 days
-  const future={};
-  items.filter(x=>x.na.dueDate>t&&daysBetween(t,x.na.dueDate)<=21).forEach(x=>{
-    const k=isoD(x.na.dueDate);(future[k]=future[k]||[]).push(x);
+  // mappa data->items
+  const byDay={};
+  let lateCount=0;
+  state.contacts.forEach(c=>{const na=nextAction(c);if(!na)return;
+    if(na.dueDate<t)lateCount++;
+    const k=isoD(na.dueDate);(byDay[k]=byDay[k]||[]).push({c,na});
   });
-  const futureKeys=Object.keys(future).sort();
 
-  function rowHtml(x){
-    const st=statusOf(x.c);
-    return `<div class="agenda-row">
-      <span class="step-pill">${esc(x.na.label)}</span>
-      <span class="az">${esc(x.c.azienda)}</span>
-      <span class="when">${esc(x.c.email)}</span>
-      ${chip(st)}
+  const wkStart=startOfWeek(addDays(t,_calWeek*7));
+  const days=[];for(let i=0;i<7;i++)days.push(addDays(wkStart,i));
+  const wkLabel=`${wkStart.getDate()} ${wkStart.toLocaleDateString('it-IT',{month:'short'})} – ${addDays(wkStart,6).getDate()} ${addDays(wkStart,6).toLocaleDateString('it-IT',{month:'short'})}`;
+  const weekTotal=days.reduce((s,d)=>s+((byDay[isoD(d)]||[]).length),0);
+
+  const stepColors=['var(--accent)','var(--accent-2)','var(--warn)','var(--late)','var(--wait)'];
+
+  function dayCell(d){
+    const k=isoD(d);const items=(byDay[k]||[]);
+    const isToday=sameDay(d,t);const isPast=d<t;const wknd=(d.getDay()===0||d.getDay()===6);
+    const overdue=isPast&&items.length;
+    return `<div class="cal-cell${isToday?' today':''}${wknd?' wknd':''}${isPast&&!isToday?' past':''}">
+      <div class="cal-cell-h">
+        <span class="cal-dname">${d.toLocaleDateString('it-IT',{weekday:'short'})}</span>
+        <span class="cal-dnum">${d.getDate()}</span>
+        ${items.length?`<span class="cal-count${overdue?' late':''}">${items.length}</span>`:''}
+      </div>
+      <div class="cal-items">
+        ${items.slice(0,6).map(x=>{
+          const col=stepColors[Math.min(x.na.stepIndex,stepColors.length-1)];
+          return `<div class="cal-item" title="${escAttr(x.c.azienda+' — '+x.na.label+' ('+x.c.email+')')}" onclick="openContact('${x.c.id}')">
+            <span class="cal-dot" style="background:${col}"></span>
+            <span class="cal-az">${esc(x.c.azienda||x.c.email)}</span>
+          </div>`;
+        }).join('')}
+        ${items.length>6?`<div class="cal-more">+${items.length-6} altri</div>`:''}
+        ${!items.length?`<div class="cal-empty">—</div>`:''}
+      </div>
     </div>`;
   }
-  return `
-  ${late.length?`<div class="agenda-col">
-    <div class="section-h"><h3 style="color:var(--late)">In ritardo</h3><span class="count">${late.length}</span><div class="line"></div>
-    <button class="btn sm primary" onclick="go('coda')">Recupera →</button></div>
-    ${late.map(rowHtml).join('')}</div>`:''}
 
-  <div class="agenda-col">
-    <div class="agenda-day"><span class="dnum">${t.getDate()}</span><span class="dname">${t.toLocaleDateString('it-IT',{weekday:'long',month:'long'})} · oggi</span><span class="dcount">${todayItems.length} invii</span></div>
-    ${todayItems.length?todayItems.map(rowHtml).join(''):'<div class="email-cell" style="padding:8px 4px">Niente da inviare oggi.</div>'}
+  const legend=state.cadence.map((s,i)=>`<span class="cal-leg"><span class="cal-dot" style="background:${stepColors[Math.min(i,stepColors.length-1)]}"></span>${esc(s.nome)}</span>`).join('');
+
+  return `
+  ${lateCount?`<div class="card" style="padding:11px 16px;margin-bottom:14px;border-left:3px solid var(--late);display:flex;align-items:center;gap:12px">
+    <svg style="width:17px;height:17px;color:var(--late)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4 M12 16h.01"/></svg>
+    <div style="flex:1"><b>${lateCount} in ritardo</b> <span class="email-cell">— follow-up arretrati da recuperare</span></div>
+    <button class="btn sm primary" onclick="go('coda')">Vai alla coda →</button></div>`:''}
+
+  <div class="cal-bar">
+    <button class="btn sm ghost" onclick="calNav(-1)"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="cal-title"><b>${wkLabel}</b><span class="email-cell">${weekTotal} invii in settimana${_calWeek===0?' · settimana corrente':''}</span></div>
+    <button class="btn sm ghost" onclick="calNav(1)"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+    ${_calWeek!==0?`<button class="btn sm" onclick="calToday()">Oggi</button>`:''}
   </div>
 
-  ${futureKeys.map(k=>{
-    const d=parseD(k);const list=future[k];
-    return `<div class="agenda-col">
-      <div class="agenda-day"><span class="dnum">${d.getDate()}</span><span class="dname">${d.toLocaleDateString('it-IT',{weekday:'long',month:'long'})}</span><span class="dcount">${list.length} invii</span></div>
-      ${list.map(rowHtml).join('')}
-    </div>`;
-  }).join('')}
+  <div class="cal-grid">${days.map(dayCell).join('')}</div>
+
+  <div class="cal-legend">${legend}<span class="cal-leg" style="margin-left:auto;color:var(--faint)">Tocca un contatto per i dettagli</span></div>
   `;
 }
 
@@ -1585,6 +1679,17 @@ function openCadence(){
         <div class="form-row"><label>Azienda</label><input id="tp-az" value="${escAttr(tp.azienda)}"></div>
       </div>
       <div class="form-row"><label>Riga di disiscrizione</label><input id="tp-dis" value="${escAttr(tp.disiscrizione)}"></div>
+
+      <div class="section-h" style="margin:6px 0 0"><h3 style="font-size:14px">Prompt di generazione AI</h3><div class="line"></div></div>
+      <div class="helptip">Questo è il prompt di sistema che guida l'AI. Puoi usare i segnaposto <span class="kbd">{azienda}</span> <span class="kbd">{mittente}</span> <span class="kbd">{tono}</span> <span class="kbd">{regole_oggetto}</span> <span class="kbd">{regole_corpo}</span>: vengono sostituiti automaticamente. Deve sempre chiedere una risposta in JSON con <span class="kbd">oggetto</span> e <span class="kbd">corpo</span>.</div>
+      <div class="form-row"><label>Prompt di sistema</label>
+        <textarea id="tp-prompt" style="min-height:170px;font-family:'JetBrains Mono',monospace;font-size:12.5px">${esc(tp.promptSistema||'')}</textarea>
+        <button class="btn sm ghost" style="align-self:flex-start" onclick="document.getElementById('tp-prompt').value=PROMPT_SISTEMA_DEFAULT">Ripristina default</button></div>
+      <div class="two-col">
+        <div class="form-row"><label>Regole per l'OGGETTO</label><textarea id="tp-rogg" style="min-height:80px">${esc(tp.regoleOggetto||'')}</textarea></div>
+        <div class="form-row"><label>Regole per il CORPO</label><textarea id="tp-rcorpo" style="min-height:80px">${esc(tp.regoleCorpo||'')}</textarea></div>
+      </div>
+
       <div class="field-lbl" style="margin:0">Angolo per ogni step</div>
       ${cad.map((s,i)=>`<div class="form-row"><label>${esc(s.nome)}</label><textarea data-ai="${i}" style="min-height:60px">${esc(s.angolo||'')}</textarea></div>`).join('')}
     </div>
@@ -1605,6 +1710,9 @@ function saveCadence(){
   state.templates.mittente=document.getElementById('tp-mit').value;
   state.templates.azienda=document.getElementById('tp-az').value;
   state.templates.disiscrizione=document.getElementById('tp-dis').value;
+  state.templates.promptSistema=document.getElementById('tp-prompt').value;
+  state.templates.regoleOggetto=document.getElementById('tp-rogg').value;
+  state.templates.regoleCorpo=document.getElementById('tp-rcorpo').value;
   persist();closeModal();render();toast('Cadenza salvata','ok');
 }
 
