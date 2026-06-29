@@ -1,0 +1,1784 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowLine Outbound — Gestione campagne</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#f6f6f3; --surface:#ffffff; --surface-2:#fbfbf9; --border:#e6e4dd;
+  --text:#1b1b19; --muted:#73726c; --faint:#a3a29b;
+  --accent:#4f46e5; --accent-soft:#eef0ff; --accent-2:#0d9488;
+  --ok:#16a34a; --ok-soft:#e7f6ec; --warn:#d97706; --warn-soft:#fdf2e3;
+  --late:#dc2626; --late-soft:#fdecea; --wait:#2563eb; --wait-soft:#e9f0ff;
+  --radius:12px; --radius-sm:8px;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04);
+}
+[data-theme="dark"]{
+  --bg:#16161a; --surface:#1f1f25; --surface-2:#26262d; --border:#33333c;
+  --text:#ededf0; --muted:#9a9aa3; --faint:#6a6a73;
+  --accent:#7c75f5; --accent-soft:#26243d; --accent-2:#2dd4bf;
+  --ok:#4ade80; --ok-soft:#16291c; --warn:#fbbf24; --warn-soft:#2c2310;
+  --late:#f87171; --late-soft:#2c1514; --wait:#60a5fa; --wait-soft:#13233f;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:'JetBrains Mono',ui-monospace,'SFMono-Regular',Menlo,monospace}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,select,textarea{font-family:inherit;font-size:14px;color:var(--text)}
+a{color:var(--accent)}
+
+/* layout */
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+.rail{
+  background:var(--surface);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+}
+.brand{padding:20px 18px 14px;display:flex;align-items:center;gap:10px}
+.brand .logo{
+  width:30px;height:30px;border-radius:8px;flex:0 0 auto;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  display:flex;align-items:center;justify-content:center;
+  position:relative;overflow:hidden;
+}
+.brand .logo svg{width:18px;height:18px}
+.brand h1{font-size:15px;font-weight:650;letter-spacing:-.01em;line-height:1.1}
+.brand .sub{font-size:11px;color:var(--faint);font-weight:500}
+.nav{padding:8px;display:flex;flex-direction:column;gap:2px;flex:1}
+.nav button{
+  display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--radius-sm);
+  color:var(--muted);font-weight:550;font-size:13.5px;text-align:left;width:100%;
+  transition:background .12s,color .12s;
+}
+.nav button:hover{background:var(--surface-2);color:var(--text)}
+.nav button.active{background:var(--accent-soft);color:var(--accent)}
+.nav button .ico{width:17px;height:17px;flex:0 0 auto;opacity:.9}
+.nav button .badge{margin-left:auto;font-size:11px;font-weight:650;background:var(--accent);color:#fff;
+  min-width:19px;height:19px;border-radius:10px;padding:0 6px;display:flex;align-items:center;justify-content:center}
+.nav button.active .badge{background:var(--accent)}
+.nav .badge.late{background:var(--late)}
+.rail-foot{padding:10px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px}
+.conn-pill{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding:6px 8px;border-radius:8px;background:var(--surface-2)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:0 0 auto}
+.dot.on{background:var(--ok)}
+.dot.warn{background:var(--warn)}
+.rail-foot button.mini{font-size:12px;color:var(--muted);padding:7px 8px;border-radius:8px;text-align:left;display:flex;align-items:center;gap:8px}
+.rail-foot button.mini:hover{background:var(--surface-2);color:var(--text)}
+.spend-pill{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);padding:7px 9px;border-radius:8px;background:var(--accent-soft);border:1px solid transparent;width:100%;font-weight:600}
+.spend-pill:hover{border-color:var(--accent)}
+.spend-pill .ico{width:14px;height:14px;color:var(--accent);flex:0 0 auto}
+.spend-pill .spend-gen{margin-left:auto;font-size:11px;color:var(--muted);font-weight:500}
+.spend-table{width:100%;font-size:13px;border-collapse:collapse}
+.spend-table td{padding:7px 0;border-bottom:1px solid var(--border)}
+.spend-table td:last-child{text-align:right;font-weight:600}
+.spend-table tr:last-child td{border:none}
+.spend-big{font-size:30px;font-weight:700;letter-spacing:-.02em}
+
+.main{min-width:0;display:flex;flex-direction:column}
+.topbar{
+  position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--border);
+  padding:14px 26px;display:flex;align-items:center;gap:14px;
+}
+.topbar h2{font-size:18px;font-weight:650;letter-spacing:-.015em}
+.topbar .crumb{color:var(--faint);font-size:13px}
+.topbar .spacer{flex:1}
+.content{padding:22px 26px 60px;max-width:1180px;width:100%}
+
+/* generic ui */
+.btn{
+  display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border-radius:9px;
+  font-weight:600;font-size:13px;background:var(--surface);border:1px solid var(--border);
+  color:var(--text);transition:all .12s;
+}
+.btn:hover{background:var(--surface-2);border-color:var(--faint)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.ghost{background:transparent;border-color:transparent}
+.btn.ghost:hover{background:var(--surface-2)}
+.btn.danger{color:var(--late);border-color:transparent}
+.btn.danger:hover{background:var(--late-soft)}
+.btn.sm{padding:6px 10px;font-size:12px;gap:5px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn .ico{width:15px;height:15px}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.grid{display:grid;gap:14px}
+
+/* dashboard stats */
+.stats{grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+.stat{padding:16px 18px;position:relative;overflow:hidden}
+.stat .k{font-size:12px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:7px}
+.stat .v{font-size:30px;font-weight:700;letter-spacing:-.02em;margin-top:7px;line-height:1}
+.stat .meta{font-size:12px;color:var(--faint);margin-top:5px}
+.stat .accent-bar{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
+.stat.today .accent-bar{background:var(--accent)}
+.stat.wait .accent-bar{background:var(--wait)}
+.stat.reply .accent-bar{background:var(--ok)}
+.stat.late .accent-bar{background:var(--late)}
+
+.section-h{display:flex;align-items:center;gap:10px;margin:24px 0 12px}
+.section-h h3{font-size:15px;font-weight:650}
+.section-h .count{font-size:12px;color:var(--faint);font-weight:600}
+.section-h .line{flex:1;height:1px;background:var(--border)}
+
+/* table */
+.table-wrap{overflow:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:600;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;
+  padding:11px 14px;border-bottom:1px solid var(--border);white-space:nowrap;background:var(--surface-2);position:sticky;top:0}
+td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--surface-2)}
+.az{font-weight:600}
+.email-cell{color:var(--muted);font-size:12px}
+
+/* status chip */
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap}
+.chip .d{width:6px;height:6px;border-radius:50%}
+.chip.da{background:var(--surface-2);color:var(--muted)} .chip.da .d{background:var(--faint)}
+.chip.seq{background:var(--accent-soft);color:var(--accent)} .chip.seq .d{background:var(--accent)}
+.chip.wait{background:var(--wait-soft);color:var(--wait)} .chip.wait .d{background:var(--wait)}
+.chip.reply{background:var(--ok-soft);color:var(--ok)} .chip.reply .d{background:var(--ok)}
+.chip.done{background:var(--surface-2);color:var(--faint)} .chip.done .d{background:var(--faint)}
+.chip.stop{background:var(--late-soft);color:var(--late)} .chip.stop .d{background:var(--late)}
+.chip.late{background:var(--late-soft);color:var(--late)} .chip.late .d{background:var(--late)}
+.chip.today{background:var(--warn-soft);color:var(--warn)} .chip.today .d{background:var(--warn)}
+
+.step-pill{font-size:11px;font-weight:650;color:var(--accent-2);background:color-mix(in srgb,var(--accent-2) 12%,transparent);padding:2px 7px;border-radius:6px}
+
+/* queue cards */
+.queue-card{padding:0;overflow:hidden;margin-bottom:14px}
+.qc-head{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+.qc-head .az{font-size:14px}
+.qc-head .meta{font-size:12px;color:var(--muted)}
+.qc-head .spacer{flex:1}
+.qc-body{padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.field-lbl{font-size:11px;font-weight:650;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.field-lbl .cnt{margin-left:auto;font-weight:600;color:var(--faint);text-transform:none;letter-spacing:0}
+input.subj,textarea.body{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:9px 11px;resize:vertical}
+input.subj:focus,textarea.body:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+textarea.body{min-height:150px;line-height:1.55;white-space:pre-wrap;font-size:13.5px}
+.qc-foot{display:flex;align-items:center;gap:9px;padding:0 16px 14px;flex-wrap:wrap}
+.qc-foot .spacer{flex:1}
+.preview-note{font-size:12px;color:var(--faint);display:flex;align-items:center;gap:6px}
+
+/* agenda */
+.agenda-col{margin-bottom:20px}
+.agenda-day{display:flex;align-items:baseline;gap:10px;margin-bottom:9px}
+.agenda-day .dnum{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.agenda-day .dname{font-size:13px;color:var(--muted);font-weight:600;text-transform:capitalize}
+.agenda-day .dcount{margin-left:auto;font-size:12px;color:var(--faint);font-weight:600}
+.agenda-row{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);margin-bottom:7px}
+.agenda-row:hover{border-color:var(--faint)}
+.agenda-row .az{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agenda-row .when{font-size:12px;color:var(--muted);white-space:nowrap}
+
+/* calendar grid */
+.cal-bar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.cal-title{flex:1;text-align:center;display:flex;flex-direction:column;line-height:1.25}
+.cal-title b{font-size:15px;text-transform:capitalize}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.cal-cell{background:var(--surface);border:1px solid var(--border);border-radius:10px;min-height:140px;display:flex;flex-direction:column;overflow:hidden}
+.cal-cell.today{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.cal-cell.wknd{background:var(--surface-2)}
+.cal-cell.past{opacity:.62}
+.cal-cell-h{display:flex;align-items:center;gap:6px;padding:7px 9px;border-bottom:1px solid var(--border)}
+.cal-dname{font-size:11px;color:var(--muted);font-weight:600;text-transform:capitalize}
+.cal-dnum{font-size:14px;font-weight:700;margin-left:auto}
+.cal-cell.today .cal-dnum{color:var(--accent)}
+.cal-count{font-size:10px;font-weight:700;background:var(--accent-soft);color:var(--accent);min-width:17px;height:17px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px;margin-left:0}
+.cal-count.late{background:var(--late-soft);color:var(--late)}
+.cal-items{padding:6px;display:flex;flex-direction:column;gap:4px;overflow:auto;flex:1}
+.cal-item{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer;font-size:12px;background:var(--surface-2)}
+.cal-item:hover{background:var(--accent-soft)}
+.cal-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.cal-az{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.cal-more{font-size:11px;color:var(--muted);padding:2px 6px;font-weight:600}
+.cal-empty{font-size:13px;color:var(--faint);text-align:center;padding:8px 0}
+.cal-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:14px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--muted);font-weight:500}
+.cal-leg{display:flex;align-items:center;gap:6px}
+@media(max-width:840px){
+  .cal-grid{grid-template-columns:repeat(7,minmax(110px,1fr));overflow-x:auto;padding-bottom:6px}
+  .cal-cell{min-height:120px}
+}
+.empty{text-align:center;padding:48px 20px;color:var(--muted)}
+.empty .ico{width:40px;height:40px;margin:0 auto 14px;opacity:.4}
+.empty h4{font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px}
+.empty p{font-size:13px;max-width:380px;margin:0 auto 16px}
+
+/* modal */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);width:100%;max-width:560px;max-height:88vh;overflow:auto}
+.modal.wide{max-width:760px}
+.modal-h{display:flex;align-items:center;gap:10px;padding:18px 22px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:2}
+.modal-h h3{font-size:16px;font-weight:650;flex:1}
+.modal-b{padding:20px 22px;display:flex;flex-direction:column;gap:16px}
+.modal-f{padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:9px;justify-content:flex-end;position:sticky;bottom:0;background:var(--surface)}
+.x{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.x:hover{background:var(--surface-2)}
+
+.form-row{display:flex;flex-direction:column;gap:6px}
+.form-row label{font-size:12.5px;font-weight:600;color:var(--text)}
+.form-row .hint{font-size:11.5px;color:var(--faint);font-weight:400}
+.form-row input,.form-row select,.form-row textarea{
+  background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:9px 11px;width:100%;
+}
+.form-row input:focus,.form-row select:focus,.form-row textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.form-row textarea{min-height:90px;resize:vertical;line-height:1.5}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.toggle{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+.toggle .sw{width:38px;height:22px;border-radius:12px;background:var(--border);position:relative;transition:.15s;flex:0 0 auto}
+.toggle .sw::after{content:'';position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:2px;left:2px;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.toggle.on .sw{background:var(--accent)}
+.toggle.on .sw::after{left:18px}
+
+/* cadence editor */
+.cad-step{display:grid;grid-template-columns:1fr 110px 34px;gap:10px;align-items:center;margin-bottom:8px}
+.cad-step input{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+
+/* mapping */
+.map-row{display:grid;grid-template-columns:160px 1fr;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+.map-row:last-child{border:none}
+.map-row .lbl{font-size:13px;font-weight:600}
+.map-row .lbl small{display:block;font-weight:400;color:var(--faint);font-size:11px}
+
+/* toast */
+.toasts{position:fixed;bottom:22px;right:22px;z-index:80;display:flex;flex-direction:column;gap:9px}
+.toast{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;
+  padding:11px 15px;box-shadow:var(--shadow);font-size:13px;font-weight:500;display:flex;align-items:center;gap:9px;
+  min-width:240px;max-width:360px;animation:slidein .2s}
+.toast.ok{border-left-color:var(--ok)} .toast.err{border-left-color:var(--late)} .toast.warn{border-left-color:var(--warn)}
+@keyframes slidein{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+
+.test-banner{background:var(--warn-soft);color:var(--warn);font-size:12px;font-weight:600;padding:6px 26px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+
+.filters{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.search{flex:1;min-width:180px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:8px 11px}
+.search input{background:none;border:none;flex:1;outline:none}
+.fbtn{padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--muted);background:var(--surface);border:1px solid var(--border)}
+.fbtn.on{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+
+.spinner{width:15px;height:15px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinning svg{animation:spin .6s linear infinite}
+
+.kbd{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;padding:1px 5px;color:var(--muted)}
+.helptip{font-size:12px;color:var(--faint);line-height:1.5}
+
+@media(max-width:840px){
+  .app{grid-template-columns:1fr}
+  .rail{position:fixed;left:0;top:0;width:232px;z-index:40;transform:translateX(-100%);transition:.2s}
+  .rail.open{transform:none}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .two-col{grid-template-columns:1fr}
+  .content{padding:18px 16px 60px}
+  .topbar{padding:12px 16px}
+  .menu-btn{display:flex!important}
+}
+.menu-btn{display:none;width:34px;height:34px;border-radius:8px;align-items:center;justify-content:center;border:1px solid var(--border);background:var(--surface)}
+.scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:35}
+.scrim.show{display:block}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail" id="rail">
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h10M4 17h6"/><path d="M16 14l4 3-4 3"/></svg>
+      </div>
+      <div>
+        <h1>FlowLine</h1>
+        <div class="sub">Outbound Manager</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="rail-foot">
+      <button class="spend-pill" id="spendPill" onclick="openSpend()" title="Spesa API stimata — clicca per dettagli">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <span id="spendTxt">≈ €0,000</span>
+        <span id="spendGen" class="spend-gen">0 gen.</span>
+      </button>
+      <div class="conn-pill"><span class="dot" id="gdot"></span><span id="gtxt">Google non connesso</span></div>
+      <div class="conn-pill"><span class="dot" id="sdot"></span><span id="stxt">Database locale</span></div>
+      <button class="mini" onclick="openSettings()">
+        <svg class="ico" style="width:15px;height:15px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Impostazioni
+      </button>
+      <button class="mini" onclick="toggleTheme()" id="themeBtn">
+        <svg class="ico" style="width:15px;height:15px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        Tema
+      </button>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim" onclick="closeRail()"></div>
+
+  <div class="main">
+    <div class="test-banner" id="testBanner" style="display:none">
+      <svg style="width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+      Modalità test attiva — gli invii sono simulati, nessuna email viene spedita davvero.
+    </div>
+    <div class="topbar">
+      <button class="menu-btn" onclick="openRail()"><svg style="width:18px;height:18px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg></button>
+      <div>
+        <h2 id="viewTitle">Dashboard</h2>
+      </div>
+      <div class="spacer"></div>
+      <div id="topActions"></div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<div id="modalRoot"></div>
+<div class="toasts" id="toasts"></div>
+<input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none">
+
+<script>
+/* ============================================================
+   FlowLine Outbound Manager — single file
+   ============================================================ */
+const LS = {
+  config:'flo_config', contacts:'flo_contacts', cadence:'flo_cadence',
+  templates:'flo_templates', theme:'flo_theme', usage:'flo_usage', gauth:'flo_gauth'
+};
+const MODEL = 'claude-sonnet-4-6';
+const PRICE = {in:3, out:15}; // USD per 1M token — Claude Sonnet 4.6
+const EUR_DEFAULT = 0.92;     // USD→EUR di riferimento (modificabile)
+const STEPS_DEFAULT = [
+  {nome:'Email 1', offset:0, angolo:'Primo contatto a freddo. Apertura, motivo del contatto, una singola domanda. Tono diretto e umano, niente vendita aggressiva.'},
+  {nome:'Follow-up 1', offset:3, angolo:'Promemoria leggero in risposta alla prima mail. Aggiunge UN esempio concreto/caso reale. Breve.'},
+  {nome:'Follow-up 2', offset:7, angolo:'Penultimo tentativo. Cambia angolo: spostati sul beneficio principale, una riga, bassa pressione.'},
+  {nome:'Follow-up 3', offset:14, angolo:'Ultimo contatto (break-up). Chiude con gentilezza, lascia la porta aperta, nessuna insistenza.'},
+];
+const PROMPT_SISTEMA_DEFAULT = `Sei un assistente che scrive email di outreach B2B a freddo in italiano per {azienda}.
+Tono richiesto: {tono}
+Regole generali: testo semplice (no HTML, no markdown, no liste puntate). Nessun oggetto sensazionalistico o spammy. Una sola call-to-action. Non inventare dati specifici sull'azienda destinataria che non conosci. Firma a nome di {mittente}.
+
+{regole_oggetto}
+{regole_corpo}
+
+Rispondi SOLO con JSON valido, nessun testo prima o dopo, nel formato: {"oggetto":"...","corpo":"..."}`;
+const TEMPLATES_DEFAULT = {
+  tono:'Diretto, umano, conversazionale, in italiano. Frasi brevi. Niente gergo da marketing, niente superlativi, nessun "soluzione innovativa". Si firma "Giuseppe Romano — FlowLine".',
+  mittente:'Giuseppe Romano',
+  azienda:'FlowLine',
+  promptSistema: PROMPT_SISTEMA_DEFAULT,
+  regoleOggetto:'OGGETTO: massimo 6-7 parole, in minuscolo, curioso ma sobrio. Niente nomi azienda forzati, niente punti esclamativi.',
+  regoleCorpo:'CORPO: massimo ~130 parole. Apri con un aggancio concreto, una sola domanda di chiusura. Niente parolone.',
+  disiscrizione:'Se non desidera ricevere altre comunicazioni, risponda a questa mail con un NO e non la contatterò più.'
+};
+
+let state = {
+  config: load(LS.config, {googleClientId:'', googleApiKey:'', anthropicKey:'', supabaseUrl:'', supabaseKey:'', sheetId:'', sheetTab:'', testMode:true, saltaWeekend:true, oraInizio:9, oraFine:18, maxAlGiorno:10, autoStopReply:true, eurRate:EUR_DEFAULT, autoSync:true, autoSyncSec:60}),
+  contacts: load(LS.contacts, []),
+  cadence: load(LS.cadence, STEPS_DEFAULT),
+  templates: load(LS.templates, TEMPLATES_DEFAULT),
+  usage: load(LS.usage, {input:0, output:0, gen:0, since:new Date().toISOString().slice(0,10)}),
+  view: 'dashboard',
+  google: load(LS.gauth, {token:null, email:null, expires:0}),
+  filter: 'tutti', search:'',
+};
+if(state.config.eurRate==null) state.config.eurRate=EUR_DEFAULT;
+if(state.config.autoSync==null) state.config.autoSync=true;
+if(state.config.autoSyncSec==null) state.config.autoSyncSec=60;
+if(state.config.googleApiKey==null) state.config.googleApiKey='';
+if(state.config.supabaseUrl==null) state.config.supabaseUrl='';
+if(state.config.supabaseKey==null) state.config.supabaseKey='';
+if(!state.templates.promptSistema) state.templates.promptSistema=PROMPT_SISTEMA_DEFAULT;
+if(state.templates.regoleOggetto==null) state.templates.regoleOggetto=TEMPLATES_DEFAULT.regoleOggetto;
+if(state.templates.regoleCorpo==null) state.templates.regoleCorpo=TEMPLATES_DEFAULT.regoleCorpo;
+
+/* ---------- storage helpers ---------- */
+function load(k,def){try{const v=localStorage.getItem(k);return v?JSON.parse(v):def}catch(e){return def}}
+function save(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){toast('Spazio di archiviazione pieno','err')}}
+function persist(){save(LS.config,state.config);save(LS.contacts,state.contacts);save(LS.cadence,state.cadence);save(LS.templates,state.templates);save(LS.usage,state.usage);schedulePush();}
+
+/* ---------- cost / usage ---------- */
+function costUSD(u){return (u.input/1e6*PRICE.in)+(u.output/1e6*PRICE.out)}
+function costEUR(u){return costUSD(u)*(state.config.eurRate||EUR_DEFAULT)}
+function recordUsage(inT,outT){
+  state.usage.input+=(inT||0);state.usage.output+=(outT||0);state.usage.gen++;
+  save(LS.usage,state.usage);renderSpend();
+}
+function fmtMoney(v){return v<0.01&&v>0 ? '<0,01' : v.toFixed(v<1?3:2).replace('.',',')}
+function resetUsage(){if(!confirm('Azzerare il conteggio di spesa stimata?'))return;state.usage={input:0,output:0,gen:0,since:new Date().toISOString().slice(0,10)};save(LS.usage,state.usage);renderSpend();closeModal();toast('Conteggio azzerato','ok')}
+
+/* ---------- date utils ---------- */
+function today(){const d=new Date();d.setHours(0,0,0,0);return d}
+function parseD(s){if(!s)return null;const d=new Date(s);d.setHours(0,0,0,0);return d}
+function fmtD(d){if(!d)return '—';return d.toLocaleDateString('it-IT',{day:'2-digit',month:'short'})}
+function fmtDLong(d){if(!d)return '—';return d.toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'})}
+function isoD(d){return d.toISOString().slice(0,10)}
+function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);x.setHours(0,0,0,0);return x}
+function daysBetween(a,b){return Math.round((b-a)/86400000)}
+function nextWorkday(d){if(!state.config.saltaWeekend)return d;let x=new Date(d);while(x.getDay()===0||x.getDay()===6)x=addDays(x,1);return x}
+function sameDay(a,b){return a&&b&&a.getTime()===b.getTime()}
+
+/* ---------- cadence engine ---------- */
+// returns {dueDate, stepIndex, label} for the NEXT action, or null if no more action
+function nextAction(c){
+  if(c.haRisposto) return null;
+  const step = c.step||0;
+  if(step>=state.cadence.length) return null;
+  const cad = state.cadence[step];
+  let due;
+  if(step===0){
+    // not yet sent: due now (or first workday)
+    due = c.anchorDate ? nextWorkday(addDays(parseD(c.anchorDate),0)) : nextWorkday(today());
+  } else {
+    if(!c.anchorDate){ due = nextWorkday(today()); }
+    else due = nextWorkday(addDays(parseD(c.anchorDate), cad.offset));
+  }
+  return {dueDate:due, stepIndex:step, label:cad.nome, cad};
+}
+function statusOf(c){
+  if(c.haRisposto) return {key:'reply',label:'Ha risposto'};
+  if((c.step||0)>=state.cadence.length) return {key:'done',label:'Sequenza conclusa'};
+  if(c.fermato) return {key:'stop',label:'Fermato'};
+  const na = nextAction(c);
+  if(!na) return {key:'done',label:'Concluso'};
+  const t=today();
+  if((c.step||0)===0){
+    if(na.dueDate<=t) return {key:'da',label:'Da inviare'};
+    return {key:'da',label:'Da inviare'};
+  }
+  // already in sequence (sent at least email1)
+  if(na.dueDate<t) return {key:'late',label:'In ritardo'};
+  if(sameDay(na.dueDate,t)) return {key:'today',label:'In coda oggi'};
+  return {key:'wait',label:'In attesa'};
+}
+function isDue(c){ // due today or overdue, action pending
+  if(c.haRisposto) return false;
+  const na=nextAction(c); if(!na) return false;
+  return na.dueDate<=today();
+}
+function dueToday(c){ // azione prevista esattamente oggi (incluse le prime email pronte)
+  if(c.haRisposto) return false;
+  const na=nextAction(c); if(!na) return false;
+  return sameDay(na.dueDate,today());
+}
+function isLate(c){
+  if(c.haRisposto) return false;
+  const na=nextAction(c); if(!na) return false;
+  return na.dueDate<today() && (c.step||0)>0;
+}
+
+/* ---------- contact factory ---------- */
+function mkContact(o){
+  return {
+    id: o.id || ('c'+Math.random().toString(36).slice(2,9)),
+    n:o.n||'', azienda:o.azienda||'', sede:o.sede||'', email:(o.email||'').trim(),
+    ruolo:o.ruolo||'', settore:o.settore||'', tipoAsset:o.tipoAsset||'',
+    oggettoBase:o.oggettoBase||'', corpoBase:o.corpoBase||'',
+    disiscrizione:o.disiscrizione||state.templates.disiscrizione,
+    step:0, anchorDate:null, dataUltimoInvio:null, haRisposto:false, fermato:false,
+    threadId:null, messageId:null,
+    drafts:{}, history:[],
+  };
+}
+
+/* =======================================================
+   GOOGLE OAUTH + GMAIL + SHEETS
+   ======================================================= */
+let tokenClient=null;
+const SCOPES='https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file';
+
+function googleReady(){return state.google.token && Date.now()<state.google.expires}
+function saveGAuth(){save(LS.gauth,{token:state.google.token,email:state.google.email,expires:state.google.expires})}
+let _refreshTimer=null;
+function scheduleRefresh(){
+  if(_refreshTimer)clearTimeout(_refreshTimer);
+  const ms=state.google.expires-Date.now()-5*60*1000; // 5 min prima della scadenza
+  if(ms>0)_refreshTimer=setTimeout(()=>refreshToken(),ms);
+}
+
+function initGoogle(){
+  if(!state.config.googleClientId) return;
+  if(typeof google==='undefined'||!google.accounts){setTimeout(initGoogle,400);return}
+  try{
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: state.config.googleClientId,
+      scope: SCOPES,
+      callback: (resp)=>{
+        if(resp.error){if(resp.error!=='interaction_required'&&resp.error!=='access_denied')toast('Autorizzazione Google: '+resp.error,'warn');renderConn();return}
+        state.google.token=resp.access_token;
+        state.google.expires=Date.now()+((resp.expires_in||3600)*1000);
+        saveGAuth();scheduleRefresh();
+        afterGoogleAuth();
+      }
+    });
+  }catch(e){console.error(e)}
+}
+function connectGoogle(){
+  if(!state.config.googleClientId){openSettings();toast('Inserisci prima il Client ID Google','warn');return}
+  if(!tokenClient) initGoogle();
+  if(!tokenClient){toast('Google Identity non caricato, riprova','err');return}
+  tokenClient.requestAccessToken({prompt: state.google.email?'':'consent'});
+}
+// rinnovo silenzioso: nessun popup se la sessione Google è attiva e il consenso è già stato dato
+function refreshToken(){
+  if(!tokenClient){initGoogle();}
+  if(!tokenClient)return;
+  try{ tokenClient.requestAccessToken({prompt:''}); }catch(e){}
+}
+async function afterGoogleAuth(){
+  try{
+    const r=await gfetch('https://gmail.googleapis.com/gmail/v1/users/me/profile');
+    state.google.email=r.emailAddress;saveGAuth();
+    toast('Connesso come '+r.emailAddress,'ok');
+    renderConn(); render();
+    if(state.config.sheetId) pullFromSheet({silent:true}).catch(()=>{});
+    startAutoSync();
+  }catch(e){toast('Errore profilo Gmail','err')}
+}
+async function gfetch(url,opts={}){
+  if(!googleReady()){ // prova un refresh silenzioso al volo
+    await new Promise(res=>{
+      const prev=tokenClient&&tokenClient.callback;
+      if(!tokenClient){res();return}
+      let done=false;
+      tokenClient.callback=(resp)=>{
+        if(resp&&resp.access_token){state.google.token=resp.access_token;state.google.expires=Date.now()+((resp.expires_in||3600)*1000);saveGAuth();scheduleRefresh();}
+        tokenClient.callback=prev;done=true;res();
+      };
+      try{tokenClient.requestAccessToken({prompt:''});}catch(e){res();}
+      setTimeout(()=>{if(!done){tokenClient.callback=prev;res();}},3000);
+    });
+  }
+  if(!googleReady()) throw new Error('Sessione Google scaduta, premi Riconnetti');
+  const r=await fetch(url,{...opts,headers:{'Authorization':'Bearer '+state.google.token,'Content-Type':'application/json',...(opts.headers||{})}});
+  if(r.status===401){state.google.token=null;state.google.expires=0;saveGAuth();renderConn();throw new Error('Sessione Google scaduta, riconnetti')}
+  if(!r.ok){const t=await r.text();throw new Error('Google '+r.status+': '+t.slice(0,160))}
+  return r.json();
+}
+
+/* ---- MIME build ---- */
+function utf8b64(s){return btoa(unescape(encodeURIComponent(s)))}
+function b64url(s){return s.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+function encSubject(s){return /[^\x00-\x7F]/.test(s)?'=?UTF-8?B?'+utf8b64(s)+'?=':s}
+function buildRaw({to,from,subject,body,inReplyTo,references}){
+  const headers=[
+    'From: '+from,
+    'To: '+to,
+    'Subject: '+encSubject(subject),
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+  ];
+  if(inReplyTo){headers.push('In-Reply-To: '+inReplyTo);headers.push('References: '+(references||inReplyTo));}
+  const msg=headers.join('\r\n')+'\r\n\r\n'+body;
+  return b64url(utf8b64(msg));
+}
+
+async function sendEmailGmail(c, step, subject, body){
+  const fullBody = body + '\n\n— \n' + (c.disiscrizione||state.templates.disiscrizione);
+  if(state.config.testMode){
+    await new Promise(r=>setTimeout(r,500));
+    return {threadId:c.threadId||('sim_'+c.id), messageId:c.messageId||('<sim-'+c.id+'-'+step+'@flowline>'), simulated:true};
+  }
+  const payload={raw:buildRaw({
+    to:c.email, from:state.google.email, subject,
+    body:fullBody,
+    inReplyTo: step>0?c.messageId:null,
+    references: step>0?c.messageId:null
+  })};
+  if(step>0 && c.threadId) payload.threadId=c.threadId;
+  const sent=await gfetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send',{method:'POST',body:JSON.stringify(payload)});
+  // fetch message to read Message-ID header + threadId
+  let messageId=c.messageId, threadId=sent.threadId;
+  try{
+    const full=await gfetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/'+sent.id+'?format=metadata&metadataHeaders=Message-ID');
+    const h=(full.payload?.headers||[]).find(x=>x.name.toLowerCase()==='message-id');
+    if(h && step===0) messageId=h.value;
+  }catch(e){}
+  return {threadId, messageId, simulated:false};
+}
+
+/* ---- reply detection ---- */
+async function checkReplies(){
+  if(!googleReady()){toast('Connetti Google per controllare le risposte','warn');return}
+  if(state.config.testMode){toast('Disattiva la modalità test per leggere le risposte reali','warn');return}
+  const active=state.contacts.filter(c=>c.threadId && !c.haRisposto && (c.step||0)>0);
+  if(!active.length){toast('Nessun thread attivo da controllare','warn');return}
+  let found=0;
+  for(const c of active){
+    try{
+      const th=await gfetch('https://gmail.googleapis.com/gmail/v1/users/me/threads/'+c.threadId+'?format=metadata&metadataHeaders=From');
+      const msgs=th.messages||[];
+      const replied=msgs.some(m=>{
+        const from=(m.payload?.headers||[]).find(h=>h.name.toLowerCase()==='from');
+        if(!from)return false;
+        const v=from.value.toLowerCase();
+        return v.includes((c.email||'').toLowerCase()) && !v.includes((state.google.email||'').toLowerCase());
+      });
+      if(replied){c.haRisposto=true;found++;}
+    }catch(e){console.warn('thread check',c.azienda,e.message)}
+  }
+  persist();render();
+  toast(found?`${found} nuove risposte rilevate — follow-up fermati`:'Nessuna nuova risposta','ok');
+}
+
+/* =======================================================
+   GOOGLE SHEET SYNC (stato contatti)
+   ======================================================= */
+const SHEET_COLS=['id','azienda','sede','email','ruolo','settore','tipo_asset','oggetto','corpo','stato','step','data_ultimo_invio','anchor_date','ha_risposto','thread_id','message_id'];
+function colLetter(n){return String.fromCharCode(64+n)} // 16 -> 'P'
+const LASTCOL=colLetter(SHEET_COLS.length);
+let _autoSyncTimer=null;
+
+async function sheetTab(id){
+  if(state.config.sheetTab) return state.config.sheetTab;
+  try{
+    const meta=await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties.title`);
+    const t=(meta.sheets&&meta.sheets[0]&&meta.sheets[0].properties.title)||'Contatti';
+    state.config.sheetTab=t;persist();return t;
+  }catch(e){return 'Contatti'}
+}
+async function ensureSheet(){
+  if(!googleReady()) throw new Error('Google non connesso');
+  if(state.config.sheetId) return state.config.sheetId;
+  const r=await gfetch('https://sheets.googleapis.com/v4/spreadsheets',{method:'POST',body:JSON.stringify({
+    properties:{title:'FlowLine Outbound — contatti & stato'},
+    sheets:[{properties:{title:'Contatti'}}]
+  })});
+  state.config.sheetId=r.spreadsheetId;state.config.sheetTab='Contatti';persist();renderConn();
+  await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${r.spreadsheetId}/values/Contatti!A1?valueInputOption=RAW`,{method:'PUT',body:JSON.stringify({values:[SHEET_COLS]})});
+  return r.spreadsheetId;
+}
+function contactToRow(c){
+  const st=statusOf(c).label;
+  const d0=getDraft(c,0);
+  return [c.id,c.azienda,c.sede,c.email,c.ruolo,c.settore,c.tipoAsset,
+    c.oggettoBase||d0.oggetto||'', c.corpoBase||'',
+    st,String(c.step||0),c.dataUltimoInvio||'',c.anchorDate||'',c.haRisposto?'sì':'no',c.threadId||'',c.messageId||''];
+}
+
+// LEGGE i nuovi lead dal foglio e li importa (Sheet -> app)
+async function pullFromSheet(opts={}){
+  const silent=opts.silent;
+  if(!googleReady()){if(!silent)toast('Connetti Google per sincronizzare','warn');return 0}
+  if(!state.config.sheetId){if(!silent)toast('Nessun foglio collegato. Premi "Sheet" una volta per crearlo.','warn');return 0}
+  let rows;
+  try{
+    const tab=await sheetTab(state.config.sheetId);
+    const r=await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${state.config.sheetId}/values/${encodeURIComponent(tab)}!A1:Z10000`);
+    rows=r.values||[];
+  }catch(e){if(!silent)toast('Lettura foglio fallita: '+e.message,'err');return 0}
+  if(rows.length<2) return 0;
+  const map=guessMap(rows[0]);
+  if(map.email==null){if(!silent)toast('Nel foglio non trovo una colonna email','warn');return 0}
+  const have=new Set(state.contacts.map(c=>(c.email||'').toLowerCase()));
+  let added=0;
+  for(let i=1;i<rows.length;i++){
+    const row=rows[i];const g=f=>map[f]!=null?String(row[map[f]]??'').trim():'';
+    const email=g('email');
+    if(!email||!email.includes('@')||have.has(email.toLowerCase())) continue;
+    have.add(email.toLowerCase());
+    state.contacts.push(mkContact({
+      azienda:g('azienda'),sede:g('sede'),email,ruolo:g('ruolo'),settore:g('settore'),
+      tipoAsset:g('tipoAsset'),oggettoBase:g('oggetto'),corpoBase:g('corpo'),
+      disiscrizione:g('disiscrizione')||state.templates.disiscrizione,
+    }));
+    added++;
+  }
+  if(added){persist();render()}
+  if(!silent) toast(added?`${added} nuovi contatti importati dal foglio`:'Foglio già allineato, nessun nuovo contatto','ok');
+  else if(added) toast(`${added} nuovi contatti dal foglio`,'ok');
+  return added;
+}
+
+// SCRIVE lo stato di tutti i contatti sul foglio (app -> Sheet)
+async function pushToSheet(){
+  const id=await ensureSheet();
+  const tab=await sheetTab(id);
+  // ripulisce le righe dati per evitare residui, poi riscrive tutto
+  await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(tab)}!A2:Z10000:clear`,{method:'POST',body:'{}'});
+  const values=[SHEET_COLS,...state.contacts.map(contactToRow)];
+  await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(tab)}!A1:${LASTCOL}${values.length}?valueInputOption=RAW`,{method:'PUT',body:JSON.stringify({values})});
+}
+
+// Sincronizzazione completa: prima importa i nuovi lead, poi riallinea lo stato
+async function syncToSheet(opts={}){
+  if(!googleReady()){if(!opts.silent)toast('Connetti Google per sincronizzare','warn');return}
+  try{
+    await pullFromSheet({silent:true});
+    await pushToSheet();
+    if(!opts.silent)toast('Sincronizzato con il Google Sheet','ok');
+  }catch(e){if(!opts.silent)toast('Sync fallita: '+e.message,'err')}
+}
+
+// poller automatico: importa i nuovi contatti aggiunti al foglio
+function startAutoSync(){
+  stopAutoSync();
+  if(!state.config.autoSync) return;
+  const sec=Math.max(20,state.config.autoSyncSec||60);
+  _autoSyncTimer=setInterval(()=>{ if(googleReady())pullFromSheet({silent:true}); }, sec*1000);
+}
+function stopAutoSync(){if(_autoSyncTimer){clearInterval(_autoSyncTimer);_autoSyncTimer=null}}
+
+function linkExistingSheet(input){
+  const v=(input||'').trim();if(!v){return}
+  const m=v.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  const id=m?m[1]:v;
+  state.config.sheetId=id;state.config.sheetTab='';persist();renderConn();
+  toast('Foglio collegato — sincronizzo...','ok');
+  syncToSheet();
+}
+function openSheet(){
+  if(state.config.sheetId) window.open('https://docs.google.com/spreadsheets/d/'+state.config.sheetId,'_blank');
+  else toast('Nessun Sheet collegato ancora','warn');
+}
+
+/* =======================================================
+   SUPABASE — database condiviso sempre online
+   ======================================================= */
+let supa=null, _supaChan=null, _pushTimer=null, _suppressPush=false;
+function supaConfigured(){return !!(state.config.supabaseUrl && state.config.supabaseKey)}
+function supaReady(){return !!supa}
+function initSupabase(){
+  if(!supaConfigured()){supa=null;return}
+  if(typeof window.supabase==='undefined'){setTimeout(initSupabase,400);return}
+  try{
+    supa=window.supabase.createClient(state.config.supabaseUrl, state.config.supabaseKey, {auth:{persistSession:false}});
+    supaLoad().then(()=>supaSubscribe());
+  }catch(e){console.error(e);toast('Supabase: '+e.message,'err')}
+}
+async function supaLoad(){
+  if(!supa)return;
+  try{
+    const {data,error}=await supa.from('contacts').select('id,data').order('updated_at',{ascending:true});
+    if(error)throw error;
+    if(data && data.length){
+      _suppressPush=true;
+      state.contacts=data.map(r=>r.data).filter(Boolean);
+      save(LS.contacts,state.contacts);
+      _suppressPush=false;
+      renderConn();render();
+      toast(state.contacts.length+' contatti dal database condiviso','ok');
+    } else if(state.contacts.length){
+      // DB vuoto ma ho contatti in locale: li carico io nel database
+      await pushAllToSupabase();
+      renderConn();
+      toast('Database inizializzato con i contatti locali','ok');
+    } else {
+      renderConn();
+    }
+  }catch(e){toast('Supabase load: '+e.message,'err')}
+}
+function supaSubscribe(){
+  if(!supa)return;
+  if(_supaChan){supa.removeChannel(_supaChan);_supaChan=null;}
+  _supaChan=supa.channel('contacts-rt')
+    .on('postgres_changes',{event:'*',schema:'public',table:'contacts'},payload=>{
+      const t=payload.eventType;
+      if(t==='DELETE'){
+        const id=payload.old&&payload.old.id;
+        if(id){state.contacts=state.contacts.filter(c=>c.id!==id);save(LS.contacts,state.contacts);softRender();}
+        return;
+      }
+      const row=payload.new; if(!row||!row.data)return;
+      const inc=row.data; const cur=state.contacts.find(c=>c.id===inc.id);
+      if(cur && JSON.stringify(cur)===JSON.stringify(inc)) return; // è il nostro stesso dato, ignora
+      _suppressPush=true;
+      if(cur)Object.assign(cur,inc); else state.contacts.push(inc);
+      save(LS.contacts,state.contacts);
+      _suppressPush=false;
+      softRender();
+    })
+    .subscribe();
+}
+// re-render che NON disturba ciò che stai scrivendo nella Coda
+function softRender(){
+  const a=document.activeElement;
+  if(a&&(a.tagName==='TEXTAREA'||a.tagName==='INPUT')&&a.closest('#content')){ _pendingRender=true; return; }
+  render();
+}
+let _pendingRender=false;
+document.addEventListener('focusout',e=>{ if(_pendingRender){_pendingRender=false;setTimeout(()=>render(),50);} });
+
+function schedulePush(){
+  if(!supaReady()||_suppressPush)return;
+  if(_pushTimer)clearTimeout(_pushTimer);
+  _pushTimer=setTimeout(()=>pushAllToSupabase(),700);
+}
+async function pushAllToSupabase(){
+  if(!supaReady())return;
+  try{
+    const rows=state.contacts.map(c=>({id:c.id, email:(c.email||'').toLowerCase(), data:c, updated_at:new Date().toISOString()}));
+    if(!rows.length)return;
+    const {error}=await supa.from('contacts').upsert(rows,{onConflict:'id'});
+    if(error)throw error;
+  }catch(e){console.warn('supabase push',e.message)}
+}
+async function supaDelete(id){
+  if(!supaReady())return;
+  try{await supa.from('contacts').delete().eq('id',id);}catch(e){console.warn('supabase delete',e.message)}
+}
+const SUPA_SQL=`-- Esegui una volta nell'editor SQL di Supabase
+create table if not exists contacts (
+  id text primary key,
+  email text,
+  data jsonb not null,
+  updated_at timestamptz default now()
+);
+alter table contacts enable row level security;
+create policy "full access anon" on contacts for all using (true) with check (true);
+alter publication supabase_realtime add table contacts;`;
+
+/* ---- selezione file sorgente (Google Picker) + tab ---- */
+function openPicker(){
+  if(!googleReady()){toast('Connetti prima Google','warn');connectGoogle();return}
+  if(!state.config.googleApiKey){toast('Serve la Google API key per il selettore Drive (Impostazioni)','warn');return}
+  if(typeof gapi==='undefined'){toast('API Google non ancora caricate, riprova tra un attimo','err');return}
+  gapi.load('picker',()=>{
+    try{
+      const view=new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS).setSelectFolderEnabled(false);
+      const picker=new google.picker.PickerBuilder()
+        .addView(view)
+        .setOAuthToken(state.google.token)
+        .setDeveloperKey(state.config.googleApiKey)
+        .setCallback(data=>{
+          if(data.action===google.picker.Action.PICKED && data.docs && data.docs[0]){
+            const doc=data.docs[0];
+            state.config.sheetId=doc.id;state.config.sheetTab='';persist();renderConn();
+            const inp=document.getElementById('set-sheet');if(inp)inp.value=doc.id;
+            const nm=document.getElementById('sheet-name');if(nm)nm.textContent='Collegato: '+(doc.name||doc.id);
+            toast('File selezionato: '+(doc.name||doc.id),'ok');
+            loadTabs().then(()=>pullFromSheet());
+          }
+        }).build();
+      picker.setVisible(true);
+    }catch(e){toast('Picker: '+e.message,'err')}
+  });
+}
+async function loadTabs(){
+  if(!state.config.sheetId){toast('Nessun file selezionato','warn');return}
+  if(!googleReady()){toast('Connetti Google','warn');return}
+  try{
+    const meta=await gfetch(`https://sheets.googleapis.com/v4/spreadsheets/${state.config.sheetId}?fields=properties.title,sheets.properties.title`);
+    const tabs=(meta.sheets||[]).map(s=>s.properties.title);
+    if(!state.config.sheetTab && tabs.length){state.config.sheetTab=tabs[0];persist();}
+    const sel=document.getElementById('set-tab');
+    if(sel&&tabs.length)sel.innerHTML=tabs.map(t=>`<option ${t===state.config.sheetTab?'selected':''}>${esc(t)}</option>`).join('');
+    const row=document.getElementById('tab-row');if(row)row.style.display='';
+    const nm=document.getElementById('sheet-name');if(nm)nm.textContent='Collegato: '+esc(meta.properties?.title||state.config.sheetId)+' · '+tabs.length+' tab';
+  }catch(e){toast('Lettura fogli fallita: '+e.message,'err')}
+}
+function copySupaSQL(){navigator.clipboard.writeText(SUPA_SQL).then(()=>toast('SQL copiato','ok')).catch(()=>toast('Copia non riuscita','err'))}
+
+/* ---- aggiorna & reset ---- */
+async function refreshAll(){
+  const btn=document.getElementById('btnRefresh');
+  if(btn)btn.classList.add('spinning');
+  try{
+    if(supaReady()) await supaLoad();
+    if(googleReady() && state.config.sheetId) await pullFromSheet({silent:true});
+    if(!supaReady() && !(googleReady()&&state.config.sheetId)) toast('Niente da aggiornare: collega Supabase o un foglio Google','warn');
+    else toast('Dati aggiornati','ok');
+  }catch(e){toast('Aggiornamento: '+e.message,'err')}
+  if(btn)btn.classList.remove('spinning');
+  render();
+}
+async function resetAll(){
+  if(!confirm('RESETTA TUTTO: elimina tutti i contatti, le bozze e lo storico invii. Le credenziali (Google, Supabase, Anthropic) restano. Continuare?'))return;
+  let wipeRemote=false;
+  if(supaReady()) wipeRemote=confirm('Vuoi svuotare anche il database condiviso Supabase?\n\nOK = cancella per tutto il team.\nAnnulla = pulisci solo questo dispositivo (i dati torneranno dal database al prossimo aggiornamento).');
+  if(wipeRemote){
+    try{await supa.from('contacts').delete().neq('id','');}catch(e){toast('Supabase: '+e.message,'err')}
+  }
+  _suppressPush=true;
+  state.contacts=[];
+  state.usage={input:0,output:0,gen:0,since:new Date().toISOString().slice(0,10)};
+  save(LS.contacts,state.contacts);save(LS.usage,state.usage);
+  _suppressPush=false;
+  closeModal();render();renderSpend();
+  toast(wipeRemote?'Tutto resettato (anche sul database)':'Dati locali resettati','ok');
+}
+function showSupaSQL(){
+  modal(`<div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-h"><h3>SQL di setup Supabase</h3><div class="x" onclick="openSettings()">✕</div></div>
+    <div class="modal-b">
+      <div class="helptip">Nel tuo progetto Supabase apri <b>SQL Editor → New query</b>, incolla ed esegui una volta. Crea la tabella <code>contacts</code> e attiva gli aggiornamenti in tempo reale.</div>
+      <textarea class="body" style="min-height:240px;font-family:'JetBrains Mono',monospace;font-size:12px" readonly>${esc(SUPA_SQL)}</textarea>
+      <button class="btn sm" onclick="copySupaSQL()">Copia SQL</button>
+    </div>
+    <div class="modal-f"><button class="btn primary" onclick="openSettings()">← Torna alle impostazioni</button></div>
+  </div>`);
+}
+
+/* =======================================================
+   ANTHROPIC — generazione email
+   ======================================================= */
+async function generateEmail(c, step){
+  const key=state.config.anthropicKey;
+  if(!key) throw new Error('Manca la chiave API Anthropic (Impostazioni)');
+  const cad=state.cadence[step];
+  const prevSent=c.history.filter(h=>h.step<step).map(h=>`[${state.cadence[h.step]?.nome}] Oggetto: ${h.oggetto}\n${h.corpo}`).join('\n\n---\n\n');
+  const sys=(state.templates.promptSistema||PROMPT_SISTEMA_DEFAULT)
+    .replace(/{azienda}/g, state.templates.azienda||'')
+    .replace(/{mittente}/g, state.templates.mittente||'')
+    .replace(/{tono}/g, state.templates.tono||'')
+    .replace(/{regole_oggetto}/g, state.templates.regoleOggetto||'')
+    .replace(/{regole_corpo}/g, state.templates.regoleCorpo||'');
+  const ctx=`Destinatario:
+- Azienda: ${c.azienda||'n/d'}
+- Sede: ${c.sede||'n/d'}
+- Ruolo/Contatto: ${c.ruolo||'n/d'}
+- Settore: ${c.settore||'n/d'}
+- Tipo asset/offerta: ${c.tipoAsset||'automazione dei processi (preventivi, ordini, listini)'}
+
+Step da scrivere: "${cad.nome}".
+Angolo/obiettivo di questo step: ${cad.angolo}
+${step===0&&c.corpoBase?`\nBozza esistente da migliorare/riadattare (mantieni il senso, rendila naturale):\nOggetto: ${c.oggettoBase}\n${c.corpoBase}`:''}
+${prevSent?`\nEmail già inviate in questo thread (NON ripeterti, costruisci sopra):\n${prevSent}`:''}`;
+  const r=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model:MODEL,max_tokens:900,system:sys,messages:[{role:'user',content:ctx}]})
+  });
+  if(!r.ok){const t=await r.text();throw new Error('Anthropic '+r.status+': '+t.slice(0,200))}
+  const data=await r.json();
+  const u=data.usage||{};
+  const inT=(u.input_tokens||0)+(u.cache_read_input_tokens||0)+(u.cache_creation_input_tokens||0);
+  const outT=u.output_tokens||0;
+  recordUsage(inT,outT);
+  const callCost=costEUR({input:inT,output:outT});
+  let txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+  txt=txt.replace(/```json|```/g,'').trim();
+  const m=txt.match(/\{[\s\S]*\}/); if(m)txt=m[0];
+  const obj=JSON.parse(txt);
+  return {oggetto:obj.oggetto||'', corpo:obj.corpo||'', cost:callCost};
+}
+
+/* get or build the draft for a contact's current step */
+function getDraft(c, step){
+  if(c.drafts && c.drafts[step]) return c.drafts[step];
+  // default seed
+  if(step===0 && c.oggettoBase){ return {oggetto:c.oggettoBase, corpo:c.corpoBase, seeded:true}; }
+  // follow-ups: subject = same as email1 (stesso thread) ; body from template angle placeholder
+  const subj = c.history[0]?.oggetto || c.oggettoBase || 'Seguito';
+  return {oggetto:subj, corpo:'(Genera con AI o scrivi il testo del follow-up)', seeded:true};
+}
+function setDraft(c,step,d){c.drafts=c.drafts||{};c.drafts[step]={...d,seeded:false};persist()}
+
+/* =======================================================
+   IMPORT
+   ======================================================= */
+const HEADER_MAP={
+  email:['email','e-mail','mail','indirizzo email','posta'],
+  azienda:['azienda','company','ragione sociale','nome azienda','ditta','cliente'],
+  sede:['sede','città','city','luogo','indirizzo','provincia','località'],
+  nome:['nome','contatto','referente','name','persona'],
+  ruolo:['ruolo','role','posizione','carica','title','qualifica'],
+  settore:['settore','industry','categoria','comparto','ambito'],
+  tipoAsset:['tipo asset','asset','offerta','offer','prodotto','servizio','proposta'],
+  oggetto:['oggetto','subject','titolo'],
+  corpo:['corpo email 1','corpo','body','testo','email 1','messaggio','corpo email'],
+  disiscrizione:['disiscrizione','unsubscribe','opt-out','disisc'],
+  n:['n','#','num','numero','id'],
+};
+function guessMap(headers){
+  const map={};
+  const norm=h=>String(h||'').toLowerCase().trim();
+  for(const field in HEADER_MAP){
+    for(let i=0;i<headers.length;i++){
+      const h=norm(headers[i]);
+      if(HEADER_MAP[field].some(k=>h===k||h.includes(k))){map[field]=i;break;}
+    }
+  }
+  return map;
+}
+function handleFile(file){
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data,{type:'array'});
+      // pick the sheet with most rows that has an email-like column
+      let best=null,bestRows=null;
+      for(const name of wb.SheetNames){
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,blankrows:false});
+        if(rows.length<2)continue;
+        const hdr=rows[0].map(x=>String(x||'').toLowerCase());
+        const score=rows.length + (hdr.some(h=>h.includes('email')||h.includes('mail'))?1000:0);
+        if(!best||score>best.score){best={name,score};bestRows=rows;}
+      }
+      if(!bestRows){toast('Nessun foglio valido trovato','err');return}
+      openImportModal(bestRows[0], bestRows.slice(1), best.name, wb.SheetNames);
+    }catch(err){toast('Errore lettura file: '+err.message,'err')}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/* =======================================================
+   RENDER
+   ======================================================= */
+const NAV=[
+  {id:'dashboard',label:'Dashboard',icon:'M3 3v18h18 M7 14l3-3 3 3 5-6'},
+  {id:'coda',label:'Coda invio',icon:'M22 2 11 13 M22 2l-7 20-4-9-9-4 20-7z'},
+  {id:'contatti',label:'Contatti',icon:'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75'},
+  {id:'calendario',label:'Calendario',icon:'M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18'},
+];
+function renderNav(){
+  const todayN=state.contacts.filter(dueToday).length;
+  const late=state.contacts.filter(isLate).length;
+  document.getElementById('nav').innerHTML=NAV.map(n=>{
+    let badge='';
+    if(n.id==='coda'&&(todayN||late)) badge=`<span class="badge${late?' late':''}">${todayN||late}</span>`;
+    return `<button class="${state.view===n.id?'active':''}" onclick="go('${n.id}')">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${n.icon}"/></svg>
+      <span>${n.label}</span>${badge}</button>`;
+  }).join('');
+}
+function renderSpend(){
+  const eur=costEUR(state.usage);
+  const txt=document.getElementById('spendTxt');
+  const gen=document.getElementById('spendGen');
+  if(txt)txt.textContent='≈ €'+fmtMoney(eur);
+  if(gen)gen.textContent=state.usage.gen+' gen.';
+}
+function openSpend(){
+  const u=state.usage;const usd=costUSD(u);const eur=costEUR(u);
+  const tot=u.input+u.output;
+  const avg=u.gen?eur/u.gen:0;
+  modal(`<div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-h"><h3>Spesa API stimata</h3><div class="x" onclick="closeModal()">✕</div></div>
+    <div class="modal-b">
+      <div style="text-align:center;padding:6px 0">
+        <div class="spend-big">≈ €${fmtMoney(eur)}</div>
+        <div class="email-cell">$${fmtMoney(usd)} USD · dal ${esc(u.since)}</div>
+      </div>
+      <table class="spend-table">
+        <tr><td>Generazioni AI</td><td>${u.gen}</td></tr>
+        <tr><td>Token input <span class="email-cell">($${PRICE.in}/M)</span></td><td>${u.input.toLocaleString('it-IT')}</td></tr>
+        <tr><td>Token output <span class="email-cell">($${PRICE.out}/M)</span></td><td>${u.output.toLocaleString('it-IT')}</td></tr>
+        <tr><td>Token totali</td><td>${tot.toLocaleString('it-IT')}</td></tr>
+        <tr><td>Costo medio per email</td><td>≈ €${fmtMoney(avg)}</td></tr>
+      </table>
+      <div class="form-row">
+        <label>Cambio USD→EUR</label>
+        <input id="eur-rate" type="number" step="0.01" value="${state.config.eurRate}" onchange="state.config.eurRate=+this.value||${EUR_DEFAULT};persist();renderSpend();openSpend()">
+        <span class="hint">Stima indicativa. La fatturazione reale è in USD nella console Anthropic, che resta la fonte ufficiale.</span>
+      </div>
+      <div class="helptip">Conta solo le chiamate AI di generazione/rigenerazione. Gmail, Sheets e l'hosting non hanno costi. Gli invii in modalità test non generano email ma la generazione del testo sì.</div>
+    </div>
+    <div class="modal-f" style="justify-content:space-between">
+      <button class="btn sm ghost danger" onclick="resetUsage()">Azzera conteggio</button>
+      <button class="btn primary" onclick="closeModal()">Chiudi</button>
+    </div>
+  </div>`);
+}
+function renderConn(){
+  const g=googleReady();
+  document.getElementById('gdot').className='dot'+(g?' on':(state.config.googleClientId?' warn':''));
+  document.getElementById('gtxt').textContent=g?(state.google.email||'Google connesso'):(state.config.googleClientId?'Google da autorizzare':'Google non connesso');
+  const sdot=document.getElementById('sdot'),stxt=document.getElementById('stxt');
+  if(sdot){sdot.className='dot'+(supaReady()?' on':(supaConfigured()?' warn':''));}
+  if(stxt){stxt.textContent=supaReady()?'Database online':(supaConfigured()?'Database in connessione…':'Database locale');}
+  document.getElementById('testBanner').style.display=state.config.testMode?'flex':'none';
+}
+function go(v){state.view=v;state.search='';state.filter='tutti';closeRail();render()}
+function render(){
+  renderNav();renderConn();renderSpend();
+  const titles={dashboard:'Dashboard',coda:'Coda invio',contatti:'Contatti',calendario:'Calendario'};
+  document.getElementById('viewTitle').textContent=titles[state.view];
+  const ta=document.getElementById('topActions');
+  ta.innerHTML=`
+      <button class="btn sm ghost" id="btnRefresh" onclick="refreshAll()" title="Aggiorna dati dal database e dal foglio">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Aggiorna</button>`;
+  if(state.contacts.length){
+    ta.innerHTML+=`
+      <button class="btn sm ghost" onclick="checkReplies()" title="Controlla risposte nei thread">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Risposte</button>
+      <button class="btn sm ghost" onclick="syncToSheet()" title="Importa i nuovi lead dal foglio e salva lo stato">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M8 13h8 M8 17h8 M8 9h2"/></svg>Sheet</button>
+      <button class="btn sm primary" onclick="pickFile()">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14 M5 12h14"/></svg>Importa</button>`;
+  }
+  const C=document.getElementById('content');
+  if(state.view==='dashboard')C.innerHTML=viewDashboard();
+  else if(state.view==='coda')C.innerHTML=viewCoda();
+  else if(state.view==='contatti')C.innerHTML=viewContatti();
+  else if(state.view==='calendario')C.innerHTML=viewCalendario();
+  if(state.view==='coda')bindCodaInputs();
+}
+
+/* ---------- DASHBOARD ---------- */
+function viewDashboard(){
+  if(!state.contacts.length) return emptyState();
+  const t=today();
+  const tot=state.contacts.length;
+  const due=state.contacts.filter(dueToday).length;
+  const late=state.contacts.filter(isLate).length;
+  const waiting=state.contacts.filter(c=>!c.haRisposto && (c.step||0)>0 && (c.step||0)<state.cadence.length && !isDue(c)).length;
+  const replied=state.contacts.filter(c=>c.haRisposto).length;
+  const concluded=state.contacts.filter(c=>!c.haRisposto && (c.step||0)>=state.cadence.length).length;
+
+  // weekly outlook
+  const week=[];for(let i=0;i<7;i++)week.push(addDays(t,i));
+  const wcount=week.map(d=>state.contacts.filter(c=>{const na=nextAction(c);return na&&sameDay(na.dueDate,d)}).length);
+  const maxW=Math.max(1,...wcount);
+
+  return `
+  <div class="grid stats">
+    <div class="card stat today"><div class="accent-bar"></div>
+      <div class="k">In coda oggi</div><div class="v">${due}</div>
+      <div class="meta">${late?`<span style="color:var(--late)">${late} in ritardo</span>`:'tutto in pari'}</div></div>
+    <div class="card stat"><div class="accent-bar"></div>
+      <div class="k">Contatti totali</div><div class="v">${tot}</div>
+      <div class="meta">${concluded} sequenze concluse</div></div>
+    <div class="card stat wait"><div class="accent-bar"></div>
+      <div class="k">In attesa di risposta</div><div class="v">${waiting}</div>
+      <div class="meta">follow-up programmati</div></div>
+    <div class="card stat reply"><div class="accent-bar"></div>
+      <div class="k">Risposte ricevute</div><div class="v">${replied}</div>
+      <div class="meta">${tot?Math.round(replied/tot*100):0}% tasso risposta</div></div>
+  </div>
+
+  <div class="section-h"><h3>Prossimi 7 giorni</h3><div class="line"></div></div>
+  <div class="card" style="padding:18px">
+    <div style="display:flex;gap:10px;align-items:flex-end;height:120px">
+      ${week.map((d,i)=>{
+        const h=wcount[i]/maxW*100;const isToday=sameDay(d,t);
+        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;height:100%;justify-content:flex-end">
+          <div style="font-size:12px;font-weight:700;color:${wcount[i]?'var(--text)':'var(--faint)'}">${wcount[i]||''}</div>
+          <div style="width:100%;max-width:42px;height:${Math.max(4,h)}%;border-radius:6px 6px 0 0;background:${isToday?'var(--accent)':wcount[i]?'var(--accent-soft)':'var(--border)'};${isToday?'':'border:1px solid var(--border)'}" title="${wcount[i]} invii"></div>
+          <div style="font-size:11px;color:${isToday?'var(--accent)':'var(--muted)'};font-weight:${isToday?700:500};text-transform:capitalize">${d.toLocaleDateString('it-IT',{weekday:'short'})}<br><span style="font-size:10px;color:var(--faint)">${d.getDate()}</span></div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>
+
+  ${due?`<div class="section-h"><h3>Da inviare oggi</h3><span class="count">${due} email</span><div class="line"></div>
+    <button class="btn sm primary" onclick="go('coda')">Vai alla coda →</button></div>
+  <div class="card"><div class="table-wrap" style="border:none">
+    <table><tbody>
+    ${state.contacts.filter(dueToday).slice(0,6).map(c=>{const na=nextAction(c);const st=statusOf(c);
+      return `<tr onclick="go('coda')" style="cursor:pointer">
+        <td class="az">${esc(c.azienda)}</td>
+        <td class="email-cell">${esc(c.email)}</td>
+        <td><span class="step-pill">${na?esc(na.label):''}</span></td>
+        <td>${chip(st)}</td></tr>`}).join('')}
+    </tbody></table></div></div>`:''}
+  `;
+}
+
+/* ---------- CODA INVIO ---------- */
+let _showLate=false;
+function toggleLate(){_showLate=!_showLate;render()}
+function viewCoda(){
+  if(!state.contacts.length) return emptyState();
+  const cap=state.config.maxAlGiorno||999;
+  const todayList=state.contacts.filter(dueToday).sort((a,b)=>(a.step||0)-(b.step||0));
+  const lateList=state.contacts.filter(isLate).sort((a,b)=>nextAction(a).dueDate-nextAction(b).dueDate);
+
+  if(!todayList.length && !lateList.length) return `<div class="empty"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
+    <h4>Niente da inviare oggi</h4><p>Nessun contatto previsto per oggi. I prossimi follow-up compariranno qui alla data prevista.</p>
+    <button class="btn primary" onclick="go('calendario')">Vedi il calendario</button></div>`;
+
+  let html='';
+  // banner ritardi (fuori dal "solo oggi", ma recuperabili a richiesta)
+  if(lateList.length){
+    html+=`<div class="card" style="padding:12px 16px;margin-bottom:14px;border-left:3px solid var(--late);display:flex;align-items:center;gap:12px">
+      <svg style="width:18px;height:18px;color:var(--late)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4 M12 16h.01"/></svg>
+      <div style="flex:1"><b>${lateList.length} follow-up in ritardo</b><div class="email-cell">erano previsti nei giorni scorsi e non sono ancora partiti.</div></div>
+      <button class="btn sm" onclick="toggleLate()">${_showLate?'Nascondi':'Mostra e recupera'}</button>
+    </div>`;
+    if(_showLate){
+      html+=`<div class="section-h"><h3 style="color:var(--late)">In ritardo</h3><span class="count">${lateList.length}</span><div class="line"></div></div>`;
+      html+=lateList.map((c,i)=>codaCard(c,i,9999)).join('');
+    }
+  }
+
+  // intestazione di oggi
+  const dlabel=today().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'});
+  html+=`<div class="section-h"><h3>Oggi · ${dlabel}</h3><span class="count">${todayList.length} contatti</span><div class="line"></div>
+    ${todayList.length?`<button class="btn sm" onclick="generateAllDrafts()"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v4 M3 5h4 M19 17v4 M17 19h4 M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>Genera mancanti</button>`:''}</div>`;
+  if(!todayList.length){
+    html+=`<div class="email-cell" style="padding:6px 2px 14px">Nessun contatto previsto per oggi.${lateList.length&&!_showLate?' Hai però dei follow-up in ritardo qui sopra.':''}</div>`;
+  } else {
+    if(cap<todayList.length) html+=`<div class="helptip" style="margin-bottom:12px">Hai impostato un limite di <b>${cap} email/giorno</b>: oltre questa soglia i contatti sono marcati "oltre limite", così resti nel ritmo.</div>`;
+    html+=todayList.map((c,idx)=>codaCard(c,idx,cap)).join('');
+  }
+  return html;
+}
+function codaCard(c,idx,cap){
+  const na=nextAction(c);const step=na.stepIndex;const d=getDraft(c,step);const st=statusOf(c);
+  const over=idx>=cap;
+  const subjLen=(d.oggetto||'').length, bodyLen=(d.corpo||'').length;
+  return `<div class="card queue-card" id="card-${c.id}">
+    <div class="qc-head">
+      <div>
+        <div class="az">${esc(c.azienda)}</div>
+        <div class="meta">${esc(c.email)}${c.sede?' · '+esc(c.sede):''}</div>
+      </div>
+      <span class="step-pill">${esc(na.label)}</span>
+      ${chip(st)}
+      ${over?`<span class="chip da" title="Oltre il limite giornaliero">oltre limite</span>`:''}
+      <div class="spacer"></div>
+      <div class="meta">previsto ${fmtD(na.dueDate)}</div>
+    </div>
+    <div class="qc-body">
+      <div>
+        <div class="field-lbl">Oggetto <span class="cnt">${subjLen} car.</span></div>
+        <input class="subj" data-id="${c.id}" data-f="oggetto" value="${escAttr(d.oggetto)}" placeholder="Oggetto email">
+      </div>
+      <div>
+        <div class="field-lbl">Corpo ${step>0?'<span style="color:var(--accent-2);text-transform:none;letter-spacing:0;font-weight:600">· stesso thread</span>':''} <span class="cnt">${bodyLen} car.</span></div>
+        <textarea class="body" data-id="${c.id}" data-f="corpo" placeholder="Testo dell'email...">${esc(d.corpo)}</textarea>
+      </div>
+      <div class="preview-note">
+        <svg style="width:13px;height:13px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v3"/></svg>
+        In calce verrà aggiunta la riga di disiscrizione automaticamente.
+      </div>
+    </div>
+    <div class="qc-foot">
+      <button class="btn sm" onclick="regen('${c.id}',${step})" id="regen-${c.id}">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Rigenera con AI</button>
+      <button class="btn sm ghost danger" onclick="skipStep('${c.id}')" title="Salta questo step">Salta</button>
+      <div class="spacer"></div>
+      <button class="btn sm primary" onclick="doSend('${c.id}',${step})" id="send-${c.id}">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13 M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        Invia${state.config.testMode?' (test)':''}</button>
+    </div>
+  </div>`;
+}
+function bindCodaInputs(){
+  document.querySelectorAll('#content [data-f]').forEach(el=>{
+    el.addEventListener('input',()=>{
+      const c=state.contacts.find(x=>x.id===el.dataset.id);if(!c)return;
+      const na=nextAction(c);if(!na)return;const step=na.stepIndex;
+      const cur=getDraft(c,step);
+      const nd={oggetto:cur.oggetto,corpo:cur.corpo};nd[el.dataset.f]=el.value;
+      setDraft(c,step,nd);
+      const cntEl=el.previousElementSibling?.querySelector('.cnt');
+      if(cntEl)cntEl.textContent=el.value.length+' car.';
+    });
+  });
+}
+
+async function regen(id,step){
+  const c=state.contacts.find(x=>x.id===id);if(!c)return;
+  const btn=document.getElementById('regen-'+id);const old=btn.innerHTML;
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Genero...';
+  try{
+    const r=await generateEmail(c,step);
+    setDraft(c,step,r);
+    toast('Email rigenerata · ≈ €'+fmtMoney(r.cost||0),'ok');render();
+  }catch(e){toast(e.message,'err');btn.disabled=false;btn.innerHTML=old}
+}
+async function generateAllDrafts(){
+  const list=state.contacts.filter(c=>dueToday(c)||(_showLate&&isLate(c)));
+  if(!state.config.anthropicKey){toast('Manca la chiave Anthropic','warn');openSettings();return}
+  let done=0,batchCost=0;toast('Genero '+list.length+' bozze...','warn');
+  for(const c of list){
+    const na=nextAction(c);if(!na)continue;
+    if(c.drafts&&c.drafts[na.stepIndex]&&!c.drafts[na.stepIndex].seeded)continue;
+    // for email1 with a base draft, skip (already good); generate only missing/followups
+    if(na.stepIndex===0 && c.oggettoBase) continue;
+    try{const r=await generateEmail(c,na.stepIndex);setDraft(c,na.stepIndex,r);batchCost+=(r.cost||0);done++;render();}catch(e){console.warn(e)}
+  }
+  toast(done+' bozze generate · ≈ €'+fmtMoney(batchCost),'ok');render();
+}
+async function doSend(id,step){
+  const c=state.contacts.find(x=>x.id===id);if(!c)return;
+  if(!c.email){toast('Contatto senza email','err');return}
+  if(!state.config.testMode && !googleReady()){toast('Connetti Google per inviare (o attiva la modalità test)','warn');connectGoogle();return}
+  const d=getDraft(c,step);
+  if(!d.oggetto||!d.corpo||d.seeded&&step>0){toast('Completa oggetto e corpo prima di inviare','warn');return}
+  const btn=document.getElementById('send-'+id);const old=btn.innerHTML;
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Invio...';
+  try{
+    const res=await sendEmailGmail(c,step,d.oggetto,d.corpo);
+    // update contact
+    c.history.push({step,oggetto:d.oggetto,corpo:d.corpo,date:isoD(today())});
+    if(step===0){c.anchorDate=isoD(today());c.threadId=res.threadId;c.messageId=res.messageId||c.messageId;}
+    else{if(res.threadId)c.threadId=res.threadId;}
+    c.dataUltimoInvio=isoD(today());
+    c.step=step+1;
+    if(c.drafts)delete c.drafts[step];
+    persist();
+    toast(res.simulated?`Simulato invio a ${c.azienda}`:`Inviata a ${c.azienda}`,'ok');
+    // background sheet sync (non blocking)
+    if(googleReady()&&state.config.sheetId)syncToSheet().catch(()=>{});
+    render();
+  }catch(e){toast('Invio fallito: '+e.message,'err');btn.disabled=false;btn.innerHTML=old}
+}
+function skipStep(id){
+  const c=state.contacts.find(x=>x.id===id);if(!c)return;
+  const na=nextAction(c);if(!na)return;
+  c.history.push({step:na.stepIndex,oggetto:'(saltato)',corpo:'',date:isoD(today()),skipped:true});
+  if(na.stepIndex===0)c.anchorDate=isoD(today());
+  c.step=na.stepIndex+1;persist();render();toast('Step saltato','warn');
+}
+
+/* ---------- CONTATTI ---------- */
+function viewContatti(){
+  if(!state.contacts.length) return emptyState();
+  const filters=[['tutti','Tutti'],['da','Da inviare'],['today','Oggi'],['late','In ritardo'],['wait','In attesa'],['reply','Risposte'],['done','Conclusi']];
+  let rows=state.contacts.slice();
+  if(state.search){const q=state.search.toLowerCase();rows=rows.filter(c=>(c.azienda+' '+c.email+' '+c.sede).toLowerCase().includes(q))}
+  if(state.filter!=='tutti')rows=rows.filter(c=>statusKey(c)===state.filter);
+  return `
+  <div class="filters">
+    <div class="search">
+      <svg style="width:15px;height:15px;color:var(--faint)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input id="searchInput" placeholder="Cerca azienda, email, sede..." value="${escAttr(state.search)}">
+    </div>
+    ${filters.map(([k,l])=>`<button class="fbtn ${state.filter===k?'on':''}" onclick="setFilter('${k}')">${l}</button>`).join('')}
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Azienda</th><th>Email</th><th>Stato</th><th>Step</th><th>Prossima azione</th><th></th></tr></thead>
+      <tbody>
+      ${rows.length?rows.map(c=>{
+        const st=statusOf(c);const na=nextAction(c);
+        return `<tr>
+          <td class="az">${esc(c.azienda)}<div class="email-cell" style="font-weight:400">${esc(c.sede||'')}</div></td>
+          <td class="email-cell">${esc(c.email)}</td>
+          <td>${chip(st)}</td>
+          <td><span class="mono" style="color:var(--muted)">${(c.step||0)}/${state.cadence.length}</span></td>
+          <td>${na?`<span class="step-pill">${esc(na.label)}</span> <span class="email-cell">${fmtD(na.dueDate)}</span>`:'<span class="email-cell">—</span>'}</td>
+          <td style="text-align:right">
+            <button class="btn sm ghost" onclick="openContact('${c.id}')">Dettagli</button>
+          </td>
+        </tr>`;
+      }).join(''):`<tr><td colspan="6" class="email-cell" style="text-align:center;padding:30px">Nessun contatto con questo filtro</td></tr>`}
+      </tbody>
+    </table>
+  </div>`;
+}
+function setFilter(f){state.filter=f;render();const s=document.getElementById('searchInput');}
+function statusKey(c){return statusOf(c).key}
+
+/* ---------- CALENDARIO ---------- */
+let _calWeek=0; // offset settimane rispetto a questa
+function calNav(d){_calWeek+=d;render()}
+function calToday(){_calWeek=0;render()}
+function startOfWeek(d){const x=new Date(d);const g=(x.getDay()+6)%7;return addDays(x,-g);} // lunedì
+function viewCalendario(){
+  if(!state.contacts.length) return emptyState();
+  const t=today();
+  // mappa data->items
+  const byDay={};
+  let lateCount=0;
+  state.contacts.forEach(c=>{const na=nextAction(c);if(!na)return;
+    if(na.dueDate<t)lateCount++;
+    const k=isoD(na.dueDate);(byDay[k]=byDay[k]||[]).push({c,na});
+  });
+
+  const wkStart=startOfWeek(addDays(t,_calWeek*7));
+  const days=[];for(let i=0;i<7;i++)days.push(addDays(wkStart,i));
+  const wkLabel=`${wkStart.getDate()} ${wkStart.toLocaleDateString('it-IT',{month:'short'})} – ${addDays(wkStart,6).getDate()} ${addDays(wkStart,6).toLocaleDateString('it-IT',{month:'short'})}`;
+  const weekTotal=days.reduce((s,d)=>s+((byDay[isoD(d)]||[]).length),0);
+
+  const stepColors=['var(--accent)','var(--accent-2)','var(--warn)','var(--late)','var(--wait)'];
+
+  function dayCell(d){
+    const k=isoD(d);const items=(byDay[k]||[]);
+    const isToday=sameDay(d,t);const isPast=d<t;const wknd=(d.getDay()===0||d.getDay()===6);
+    const overdue=isPast&&items.length;
+    return `<div class="cal-cell${isToday?' today':''}${wknd?' wknd':''}${isPast&&!isToday?' past':''}">
+      <div class="cal-cell-h">
+        <span class="cal-dname">${d.toLocaleDateString('it-IT',{weekday:'short'})}</span>
+        <span class="cal-dnum">${d.getDate()}</span>
+        ${items.length?`<span class="cal-count${overdue?' late':''}">${items.length}</span>`:''}
+      </div>
+      <div class="cal-items">
+        ${items.slice(0,6).map(x=>{
+          const col=stepColors[Math.min(x.na.stepIndex,stepColors.length-1)];
+          return `<div class="cal-item" title="${escAttr(x.c.azienda+' — '+x.na.label+' ('+x.c.email+')')}" onclick="openContact('${x.c.id}')">
+            <span class="cal-dot" style="background:${col}"></span>
+            <span class="cal-az">${esc(x.c.azienda||x.c.email)}</span>
+          </div>`;
+        }).join('')}
+        ${items.length>6?`<div class="cal-more">+${items.length-6} altri</div>`:''}
+        ${!items.length?`<div class="cal-empty">—</div>`:''}
+      </div>
+    </div>`;
+  }
+
+  const legend=state.cadence.map((s,i)=>`<span class="cal-leg"><span class="cal-dot" style="background:${stepColors[Math.min(i,stepColors.length-1)]}"></span>${esc(s.nome)}</span>`).join('');
+
+  return `
+  ${lateCount?`<div class="card" style="padding:11px 16px;margin-bottom:14px;border-left:3px solid var(--late);display:flex;align-items:center;gap:12px">
+    <svg style="width:17px;height:17px;color:var(--late)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4 M12 16h.01"/></svg>
+    <div style="flex:1"><b>${lateCount} in ritardo</b> <span class="email-cell">— follow-up arretrati da recuperare</span></div>
+    <button class="btn sm primary" onclick="go('coda')">Vai alla coda →</button></div>`:''}
+
+  <div class="cal-bar">
+    <button class="btn sm ghost" onclick="calNav(-1)"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="cal-title"><b>${wkLabel}</b><span class="email-cell">${weekTotal} invii in settimana${_calWeek===0?' · settimana corrente':''}</span></div>
+    <button class="btn sm ghost" onclick="calNav(1)"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+    ${_calWeek!==0?`<button class="btn sm" onclick="calToday()">Oggi</button>`:''}
+  </div>
+
+  <div class="cal-grid">${days.map(dayCell).join('')}</div>
+
+  <div class="cal-legend">${legend}<span class="cal-leg" style="margin-left:auto;color:var(--faint)">Tocca un contatto per i dettagli</span></div>
+  `;
+}
+
+/* ---------- EMPTY ---------- */
+function emptyState(){
+  return `<div class="empty">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4h16v16H4z M4 8h16 M8 4v16"/></svg>
+    <h4>Nessun contatto ancora</h4>
+    <p>Carica un file CSV o Excel con la tua lista di lead. Le colonne (email, azienda, sede, oggetto, corpo...) vengono mappate in automatico.</p>
+    <button class="btn primary" onclick="pickFile()">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12"/></svg>
+      Importa lista contatti</button>
+    <div style="margin-top:14px"><button class="btn sm ghost" onclick="loadDemo()">oppure carica i 28 contatti di esempio</button></div>
+  </div>`;
+}
+
+/* =======================================================
+   MODALS
+   ======================================================= */
+function modal(html){document.getElementById('modalRoot').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeModal()">${html}</div>`}
+function closeModal(){document.getElementById('modalRoot').innerHTML=''}
+
+/* ---- import mapping modal ---- */
+let _importData=null;
+function openImportModal(headers, rows, sheetName, allSheets){
+  const map=guessMap(headers);
+  _importData={headers,rows,map};
+  const opts=i=>headers.map((h,j)=>`<option value="${j}" ${map[i]===j?'selected':''}>${esc(String(h||'col '+(j+1)))}</option>`).join('');
+  const fields=[
+    ['email','Email *','obbligatorio'],['azienda','Azienda',''],['sede','Sede / città',''],
+    ['nome','Referente',''],['ruolo','Ruolo',''],['settore','Settore',''],
+    ['tipoAsset','Tipo asset / offerta','usato dall\'AI'],['oggetto','Oggetto email 1',''],
+    ['corpo','Corpo email 1','bozza di partenza'],['disiscrizione','Disiscrizione','']
+  ];
+  modal(`<div class="modal wide" onclick="event.stopPropagation()">
+    <div class="modal-h"><h3>Importa contatti</h3><div class="x" onclick="closeModal()">✕</div></div>
+    <div class="modal-b">
+      <div class="helptip">Foglio <b>${esc(sheetName)}</b> · ${rows.length} righe. Controlla l'abbinamento delle colonne (rilevato in automatico).</div>
+      <div>
+        ${fields.map(([f,lbl,hint])=>`<div class="map-row">
+          <div class="lbl">${lbl}${hint?`<small>${hint}</small>`:''}</div>
+          <select id="map-${f}"><option value="">— nessuna —</option>${opts(f)}</select>
+        </div>`).join('')}
+      </div>
+      <label class="toggle ${'on'}" id="dedup-tog" onclick="this.classList.toggle('on')"><span class="sw"></span><span>Salta righe senza email o duplicate</span></label>
+    </div>
+    <div class="modal-f">
+      <button class="btn" onclick="closeModal()">Annulla</button>
+      <button class="btn primary" onclick="confirmImport()">Importa ${rows.length} contatti</button>
+    </div>
+  </div>`);
+}
+function confirmImport(){
+  const {headers,rows}=_importData;
+  const fields=['email','azienda','sede','nome','ruolo','settore','tipoAsset','oggetto','corpo','disiscrizione','n'];
+  const sel={};fields.forEach(f=>{const el=document.getElementById('map-'+f);sel[f]=el?(el.value===''?-1:+el.value):-1});
+  const dedup=document.getElementById('dedup-tog').classList.contains('on');
+  const seen=new Set(state.contacts.map(c=>c.email.toLowerCase()));
+  let added=0,skipped=0;
+  rows.forEach(r=>{
+    const g=f=>sel[f]>=0?String(r[sel[f]]??'').trim():'';
+    const email=g('email');
+    if(dedup&&(!email||seen.has(email.toLowerCase()))){skipped++;return}
+    if(email)seen.add(email.toLowerCase());
+    state.contacts.push(mkContact({
+      n:g('n'),azienda:g('azienda'),sede:g('sede'),email,ruolo:g('ruolo'),
+      settore:g('settore'),tipoAsset:g('tipoAsset'),
+      oggettoBase:g('oggetto'),corpoBase:g('corpo'),
+      disiscrizione:g('disiscrizione')||state.templates.disiscrizione,
+    }));
+    added++;
+  });
+  persist();closeModal();render();
+  toast(`${added} contatti importati${skipped?`, ${skipped} saltati`:''}`,'ok');
+  if(googleReady()&&state.config.sheetId)syncToSheet().catch(()=>{});
+}
+
+/* ---- contact detail ---- */
+function openContact(id){
+  const c=state.contacts.find(x=>x.id===id);if(!c)return;
+  const st=statusOf(c);const na=nextAction(c);
+  const hist=c.history.length?c.history.map(h=>`<div style="padding:10px 12px;border:1px solid var(--border);border-radius:9px;margin-bottom:8px">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px"><span class="step-pill">${esc(state.cadence[h.step]?.nome||'Step '+h.step)}</span><span class="email-cell">${esc(h.date)}</span>${h.skipped?'<span class="chip da">saltato</span>':''}</div>
+    ${h.skipped?'':`<div style="font-weight:600;font-size:13px">${esc(h.oggetto)}</div><div class="email-cell" style="white-space:pre-wrap;margin-top:4px">${esc((h.corpo||'').slice(0,300))}${(h.corpo||'').length>300?'…':''}</div>`}
+  </div>`).join(''):'<div class="email-cell">Nessun invio ancora.</div>';
+  modal(`<div class="modal wide" onclick="event.stopPropagation()">
+    <div class="modal-h"><h3>${esc(c.azienda)}</h3>${chip(st)}<div class="x" onclick="closeModal()">✕</div></div>
+    <div class="modal-b">
+      <div class="two-col">
+        <div class="form-row"><label>Email</label><input value="${escAttr(c.email)}" onchange="editC('${id}','email',this.value)"></div>
+        <div class="form-row"><label>Sede</label><input value="${escAttr(c.sede)}" onchange="editC('${id}','sede',this.value)"></div>
+        <div class="form-row"><label>Ruolo / referente</label><input value="${escAttr(c.ruolo)}" onchange="editC('${id}','ruolo',this.value)"></div>
+        <div class="form-row"><label>Settore</label><input value="${escAttr(c.settore)}" onchange="editC('${id}','settore',this.value)"></div>
+        <div class="form-row" style="grid-column:1/3"><label>Tipo asset / offerta</label><input value="${escAttr(c.tipoAsset)}" onchange="editC('${id}','tipoAsset',this.value)"></div>
+      </div>
+      <div style="display:flex;gap:18px;font-size:13px;padding:10px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+        <div><span class="email-cell">Step</span><br><b class="mono">${(c.step||0)}/${state.cadence.length}</b></div>
+        <div><span class="email-cell">Ultimo invio</span><br><b>${c.dataUltimoInvio?fmtD(parseD(c.dataUltimoInvio)):'—'}</b></div>
+        <div><span class="email-cell">Prossima</span><br><b>${na?fmtD(na.dueDate)+' · '+na.label:'—'}</b></div>
+        <div><span class="email-cell">Ha risposto</span><br><b>${c.haRisposto?'sì':'no'}</b></div>
+      </div>
+      <div class="field-lbl" style="margin:0">Cronologia thread</div>
+      ${hist}
+    </div>
+    <div class="modal-f" style="justify-content:space-between">
+      <div style="display:flex;gap:8px">
+        <button class="btn sm ghost danger" onclick="deleteContact('${id}')">Elimina</button>
+        <button class="btn sm" onclick="toggleReplied('${id}')">${c.haRisposto?'Segna non risposto':'Segna come risposto'}</button>
+        <button class="btn sm" onclick="resetSeq('${id}')">Reset sequenza</button>
+      </div>
+      <button class="btn primary" onclick="closeModal()">Chiudi</button>
+    </div>
+  </div>`);
+}
+function editC(id,f,v){const c=state.contacts.find(x=>x.id===id);if(c){c[f]=v;persist()}}
+function toggleReplied(id){const c=state.contacts.find(x=>x.id===id);if(c){c.haRisposto=!c.haRisposto;persist();openContact(id);render()}}
+function resetSeq(id){const c=state.contacts.find(x=>x.id===id);if(c){c.step=0;c.anchorDate=null;c.dataUltimoInvio=null;c.haRisposto=false;c.history=[];c.drafts={};c.threadId=null;c.messageId=null;persist();openContact(id);render();toast('Sequenza azzerata','warn')}}
+function deleteContact(id){if(!confirm('Eliminare questo contatto?'))return;state.contacts=state.contacts.filter(c=>c.id!==id);supaDelete(id);persist();closeModal();render()}
+
+/* ---- settings ---- */
+function openSettings(){
+  const cf=state.config;
+  modal(`<div class="modal wide" onclick="event.stopPropagation()">
+    <div class="modal-h"><h3>Impostazioni</h3><div class="x" onclick="closeModal()">✕</div></div>
+    <div class="modal-b">
+      <label class="toggle ${cf.testMode?'on':''}" id="set-test"><span class="sw"></span>
+        <span><b>Modalità test</b><br><span class="hint">Gli invii sono simulati: niente email reali. Disattiva per inviare davvero.</span></span></label>
+
+      <div class="section-h" style="margin:4px 0 0"><h3 style="font-size:14px">Connessione Google</h3><div class="line"></div></div>
+      <div class="form-row"><label>Google OAuth Client ID</label>
+        <input id="set-gid" value="${escAttr(cf.googleClientId)}" placeholder="xxxxxx.apps.googleusercontent.com">
+        <span class="hint">Da Google Cloud Console → Credenziali → ID client OAuth (tipo: Web). Aggiungi l'origine del tuo sito GitHub Pages tra le origini JavaScript autorizzate.</span></div>
+      <div class="form-row"><label>Google API key <span class="hint">(facoltativa — abilita la scelta del file da Drive)</span></label>
+        <input id="set-gak" value="${escAttr(cf.googleApiKey)}" placeholder="AIza..."></div>
+      <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+        <button class="btn sm" onclick="saveGid()">${googleReady()?'Riconnetti':'Connetti Google'}</button>
+        ${googleReady()?`<span class="chip reply"><span class="d"></span>${esc(state.google.email||'connesso')}</span>`:''}
+        ${cf.sheetId?`<button class="btn sm ghost" onclick="openSheet()">Apri Google Sheet</button>`:''}
+      </div>
+
+      <div class="section-h" style="margin:4px 0 0"><h3 style="font-size:14px">Sorgente contatti — Google Sheet</h3><div class="line"></div></div>
+      <label class="toggle ${cf.autoSync?'on':''}" id="set-autosync"><span class="sw"></span>
+        <span><b>Importa automaticamente i nuovi contatti dal foglio</b><br><span class="hint">Ogni minuto l'app legge il foglio scelto: le righe con una email nuova diventano contatti pronti per la sequenza.</span></span></label>
+      <div class="form-row"><label>File sorgente</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn sm primary" onclick="openPicker()"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Scegli da Google Drive</button>
+          <button class="btn sm ghost" onclick="loadTabs()">Aggiorna fogli</button>
+        </div>
+        <span class="hint" id="sheet-name">${cf.sheetId?('Collegato: '+esc(cf.sheetId.slice(0,18))+'… · tab "'+esc(cf.sheetTab||'?')+'"'):'Nessun file selezionato'}</span></div>
+      <div class="form-row"><label>Oppure incolla URL/ID del foglio</label>
+        <div style="display:flex;gap:8px">
+          <input id="set-sheet" value="${escAttr(cf.sheetId)}" placeholder="https://docs.google.com/spreadsheets/d/...">
+          <button class="btn sm" onclick="linkExistingSheet(document.getElementById('set-sheet').value)">Collega</button>
+        </div></div>
+      <div class="form-row" id="tab-row" style="${cf.sheetId?'':'display:none'}"><label>Tab del foglio da leggere</label>
+        <select id="set-tab" onchange="state.config.sheetTab=this.value;persist();pullFromSheet()"><option>${esc(cf.sheetTab||'Contatti')}</option></select></div>
+      <div style="display:flex;gap:9px">
+        <button class="btn sm" onclick="pullFromSheet()">Importa ora</button>
+        <button class="btn sm ghost" onclick="syncToSheet()">Sincronizza tutto</button>
+      </div>
+      <div class="helptip">Per <b>togliere</b> un contatto, eliminalo dall'app (non solo la riga del foglio, che verrebbe riscritta).</div>
+
+      <div class="section-h" style="margin:4px 0 0"><h3 style="font-size:14px">Database condiviso — Supabase</h3><div class="line"></div></div>
+      <div class="helptip">Con Supabase i contatti e lo stato sono <b>sempre online</b> e condivisi: tutto il team vede gli stessi dati, aggiornati in tempo reale. Senza Supabase l'app funziona comunque, ma i dati restano sul singolo browser.</div>
+      <div class="two-col">
+        <div class="form-row"><label>Project URL</label><input id="set-supaurl" value="${escAttr(cf.supabaseUrl)}" placeholder="https://xxxx.supabase.co"></div>
+        <div class="form-row"><label>anon public key</label><input id="set-supakey" type="password" value="${escAttr(cf.supabaseKey)}" placeholder="eyJhbGci..."></div>
+      </div>
+      <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+        ${supaReady()?`<span class="chip reply"><span class="d"></span>Database connesso</span>`:`<span class="chip da"><span class="d"></span>Non connesso</span>`}
+        <button class="btn sm ghost" onclick="showSupaSQL()">Mostra SQL di setup</button>
+      </div>
+
+      <div class="section-h" style="margin:4px 0 0"><h3 style="font-size:14px">Generazione AI</h3><div class="line"></div></div>
+      <div class="form-row"><label>Chiave API Anthropic</label>
+        <input id="set-akey" type="password" value="${escAttr(cf.anthropicKey)}" placeholder="sk-ant-...">
+        <span class="hint">Usata per generare oggetto e corpo (modello ${MODEL}). Salvata solo nel browser.</span></div>
+
+      <div class="section-h" style="margin:4px 0 0"><h3 style="font-size:14px">Regole di invio</h3><div class="line"></div></div>
+      <div class="two-col">
+        <div class="form-row"><label>Max email al giorno</label><input id="set-max" type="number" value="${cf.maxAlGiorno}"></div>
+        <div class="form-row"><label>Finestra oraria</label>
+          <div style="display:flex;gap:8px;align-items:center"><input id="set-oi" type="number" value="${cf.oraInizio}" style="width:70px">–<input id="set-of" type="number" value="${cf.oraFine}" style="width:70px"></div></div>
+      </div>
+      <label class="toggle ${cf.saltaWeekend?'on':''}" id="set-week"><span class="sw"></span><span>Salta sabato e domenica</span></label>
+      <label class="toggle ${cf.autoStopReply?'on':''}" id="set-stop"><span class="sw"></span><span>Ferma i follow-up quando il contatto risponde</span></label>
+    </div>
+    <div class="modal-f" style="justify-content:space-between">
+      <div style="display:flex;gap:9px">
+        <button class="btn sm ghost" onclick="openCadence()">Cadenza & template →</button>
+        <button class="btn sm ghost danger" onclick="resetAll()">Resetta tutto</button>
+      </div>
+      <div style="display:flex;gap:9px">
+        <button class="btn" onclick="closeModal()">Annulla</button>
+        <button class="btn primary" onclick="saveSettings()">Salva</button>
+      </div>
+    </div>
+  </div>`);
+  document.querySelectorAll('#set-test,#set-week,#set-stop,#set-autosync').forEach(el=>el.onclick=()=>el.classList.toggle('on'));
+  if(googleReady()&&state.config.sheetId)loadTabs();
+}
+function saveGid(){
+  const v=document.getElementById('set-gid').value.trim();
+  state.config.googleClientId=v;persist();tokenClient=null;initGoogle();
+  setTimeout(()=>connectGoogle(),300);
+}
+function saveSettings(){
+  const cf=state.config;
+  const prevSupaUrl=cf.supabaseUrl, prevSupaKey=cf.supabaseKey;
+  cf.googleClientId=document.getElementById('set-gid').value.trim();
+  cf.googleApiKey=document.getElementById('set-gak').value.trim();
+  cf.anthropicKey=document.getElementById('set-akey').value.trim();
+  cf.supabaseUrl=document.getElementById('set-supaurl').value.trim().replace(/\/$/,'');
+  cf.supabaseKey=document.getElementById('set-supakey').value.trim();
+  cf.maxAlGiorno=+document.getElementById('set-max').value||10;
+  cf.oraInizio=+document.getElementById('set-oi').value||9;
+  cf.oraFine=+document.getElementById('set-of').value||18;
+  cf.saltaWeekend=document.getElementById('set-week').classList.contains('on');
+  cf.autoStopReply=document.getElementById('set-stop').classList.contains('on');
+  cf.testMode=document.getElementById('set-test').classList.contains('on');
+  cf.autoSync=document.getElementById('set-autosync').classList.contains('on');
+  persist();closeModal();initGoogle();startAutoSync();
+  if(cf.supabaseUrl!==prevSupaUrl||cf.supabaseKey!==prevSupaKey){supa=null;initSupabase();}
+  render();toast('Impostazioni salvate','ok');
+}
+
+/* ---- cadence & templates ---- */
+function openCadence(){
+  const cad=state.cadence;const tp=state.templates;
+  modal(`<div class="modal wide" onclick="event.stopPropagation()">
+    <div class="modal-h"><h3>Cadenza & template</h3><div class="x" onclick="closeModal()">✕</div></div>
+    <div class="modal-b">
+      <div class="field-lbl" style="margin:0">Sequenza di follow-up</div>
+      <div class="helptip">Giorni = scarto dalla prima email (giorno 0). I weekend vengono saltati se attivo.</div>
+      <div id="cad-list">
+        ${cad.map((s,i)=>`<div class="cad-step">
+          <input value="${escAttr(s.nome)}" data-i="${i}" data-k="nome" placeholder="Nome step">
+          <input type="number" value="${s.offset}" data-i="${i}" data-k="offset" placeholder="giorno">
+          <button class="x" onclick="rmStep(${i})" ${i===0?'style="visibility:hidden"':''}>✕</button>
+        </div>`).join('')}
+      </div>
+      <button class="btn sm" onclick="addStep()"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Aggiungi step</button>
+
+      <div class="section-h" style="margin:6px 0 0"><h3 style="font-size:14px">Tono & firma</h3><div class="line"></div></div>
+      <div class="form-row"><label>Tono / stile (istruzioni per l'AI)</label>
+        <textarea id="tp-tono">${esc(tp.tono)}</textarea></div>
+      <div class="two-col">
+        <div class="form-row"><label>Mittente (firma)</label><input id="tp-mit" value="${escAttr(tp.mittente)}"></div>
+        <div class="form-row"><label>Azienda</label><input id="tp-az" value="${escAttr(tp.azienda)}"></div>
+      </div>
+      <div class="form-row"><label>Riga di disiscrizione</label><input id="tp-dis" value="${escAttr(tp.disiscrizione)}"></div>
+
+      <div class="section-h" style="margin:6px 0 0"><h3 style="font-size:14px">Prompt di generazione AI</h3><div class="line"></div></div>
+      <div class="helptip">Questo è il prompt di sistema che guida l'AI. Puoi usare i segnaposto <span class="kbd">{azienda}</span> <span class="kbd">{mittente}</span> <span class="kbd">{tono}</span> <span class="kbd">{regole_oggetto}</span> <span class="kbd">{regole_corpo}</span>: vengono sostituiti automaticamente. Deve sempre chiedere una risposta in JSON con <span class="kbd">oggetto</span> e <span class="kbd">corpo</span>.</div>
+      <div class="form-row"><label>Prompt di sistema</label>
+        <textarea id="tp-prompt" style="min-height:170px;font-family:'JetBrains Mono',monospace;font-size:12.5px">${esc(tp.promptSistema||'')}</textarea>
+        <button class="btn sm ghost" style="align-self:flex-start" onclick="document.getElementById('tp-prompt').value=PROMPT_SISTEMA_DEFAULT">Ripristina default</button></div>
+      <div class="two-col">
+        <div class="form-row"><label>Regole per l'OGGETTO</label><textarea id="tp-rogg" style="min-height:80px">${esc(tp.regoleOggetto||'')}</textarea></div>
+        <div class="form-row"><label>Regole per il CORPO</label><textarea id="tp-rcorpo" style="min-height:80px">${esc(tp.regoleCorpo||'')}</textarea></div>
+      </div>
+
+      <div class="field-lbl" style="margin:0">Angolo per ogni step</div>
+      ${cad.map((s,i)=>`<div class="form-row"><label>${esc(s.nome)}</label><textarea data-ai="${i}" style="min-height:60px">${esc(s.angolo||'')}</textarea></div>`).join('')}
+    </div>
+    <div class="modal-f">
+      <button class="btn" onclick="openSettings()">← Indietro</button>
+      <button class="btn primary" onclick="saveCadence()">Salva</button>
+    </div>
+  </div>`);
+}
+function addStep(){state.cadence.push({nome:'Follow-up '+state.cadence.length,offset:(state.cadence.at(-1)?.offset||0)+7,angolo:''});openCadence()}
+function rmStep(i){state.cadence.splice(i,1);openCadence()}
+function saveCadence(){
+  document.querySelectorAll('#cad-list [data-k]').forEach(el=>{
+    const i=+el.dataset.i,k=el.dataset.k;state.cadence[i][k]=k==='offset'?(+el.value||0):el.value;
+  });
+  document.querySelectorAll('[data-ai]').forEach(el=>{state.cadence[+el.dataset.ai].angolo=el.value});
+  state.templates.tono=document.getElementById('tp-tono').value;
+  state.templates.mittente=document.getElementById('tp-mit').value;
+  state.templates.azienda=document.getElementById('tp-az').value;
+  state.templates.disiscrizione=document.getElementById('tp-dis').value;
+  state.templates.promptSistema=document.getElementById('tp-prompt').value;
+  state.templates.regoleOggetto=document.getElementById('tp-rogg').value;
+  state.templates.regoleCorpo=document.getElementById('tp-rcorpo').value;
+  persist();closeModal();render();toast('Cadenza salvata','ok');
+}
+
+/* =======================================================
+   DEMO + UTIL
+   ======================================================= */
+function loadDemo(){
+  const demo=[
+    ['QUESTIONE DI GUSTO SRL','BRESCIA, BS','info@questionedigusto.net','una curiosità'],
+    ['OMIFER SRL','CAZZAGO SAN MARTINO, BS','sales@omifer.it','una domanda sui preventivi'],
+    ['FOKER SRL','TORBOLE CASAGLIA, BS','info@foker.com','le rubo un minuto'],
+    ['GRAFICA SETTE SRL SB','BAGNOLO MELLA, BS','info@seventyseven.biz','una curiosità sui preventivi'],
+    ['LECAPITAINE ITALIA SRL','RIVALTA DI TORINO, TO','info@icytruck.it','una domanda sugli allestimenti'],
+    ['TEKNOFERR SRL','GIVOLETTO, TO','amministrazione@teknoferr.it','le rubo due minuti'],
+    ['F.I.F.P.E. SRL','BAIRO, TO','info@fifpe.it','una curiosità'],
+  ];
+  demo.forEach(([az,sede,email,ogg])=>state.contacts.push(mkContact({
+    azienda:az,sede,email,oggettoBase:ogg,
+    corpoBase:`Buongiorno,\n\nmi occupo di automazione dei processi per piccole aziende manifatturiere della zona. Le scrivo perché in realtà come la vostra la preparazione di preventivi e ordini spesso pesa a mano su poche persone.\n\nSe da voi fila già tutto liscio, mi scusi il disturbo. Altrimenti le mostro volentieri come si alleggerisce.\n\nLe va?\n\nGiuseppe Romano\nFlowLine`,
+    tipoAsset:'automazione preventivi e ordini',settore:'manifatturiero',
+  })));
+  persist();render();toast('7 contatti di esempio caricati','ok');
+}
+function pickFile(){document.getElementById('fileInput').click()}
+document.getElementById('fileInput').addEventListener('change',e=>{const f=e.target.files[0];if(f)handleFile(f);e.target.value=''});
+
+function chip(st){return `<span class="chip ${st.key}"><span class="d"></span>${st.label}</span>`}
+function esc(s){return String(s??'').replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))}
+function escAttr(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function toast(msg,type=''){
+  const el=document.createElement('div');el.className='toast '+type;
+  el.innerHTML=`<span>${esc(msg)}</span>`;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(()=>{el.style.opacity='0';el.style.transform='translateX(20px)';setTimeout(()=>el.remove(),200)},3200);
+}
+function toggleTheme(){const cur=document.documentElement.getAttribute('data-theme');const nx=cur==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',nx);save(LS.theme,nx)}
+function openRail(){document.getElementById('rail').classList.add('open');document.getElementById('scrim').classList.add('show')}
+function closeRail(){document.getElementById('rail').classList.remove('open');document.getElementById('scrim').classList.remove('show')}
+
+/* search debounce binding (delegated) */
+document.addEventListener('input',e=>{
+  if(e.target.id==='searchInput'){state.search=e.target.value;clearTimeout(window._st);window._st=setTimeout(()=>{render();const i=document.getElementById('searchInput');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}},220)}
+});
+
+/* keyboard: i = import, c = coda */
+document.addEventListener('keydown',e=>{
+  if(e.target.matches('input,textarea,select'))return;
+  if(e.key==='i')pickFile();
+  if(e.key==='c')go('coda');
+  if(e.key==='d')go('dashboard');
+});
+
+/* ---- boot ---- */
+(function boot(){
+  const th=load(LS.theme,null)||(window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
+  document.documentElement.setAttribute('data-theme',th);
+  initGoogle();
+  // ripristina la sessione Google salvata; se scaduta, tenta un rinnovo silenzioso
+  if(state.config.googleClientId){
+    if(googleReady()){ scheduleRefresh(); setTimeout(()=>afterGoogleAuth(),300); }
+    else if(state.google.email){ setTimeout(()=>refreshToken(),800); }
+  }
+  initSupabase();
+  render();
+  startAutoSync();
+})();
+</script>
+</body>
+</html>
