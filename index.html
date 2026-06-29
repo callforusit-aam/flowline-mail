@@ -147,6 +147,8 @@ tbody tr:hover{background:var(--surface-2)}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap}
 .chip .d{width:6px;height:6px;border-radius:50%}
 .chip.da{background:var(--surface-2);color:var(--muted)} .chip.da .d{background:var(--faint)}
+.chip.plan{background:#f3eaff;color:#7c3aed} .chip.plan .d{background:#7c3aed}
+[data-theme="dark"] .chip.plan{background:#2a2140;color:#c4b5fd} [data-theme="dark"] .chip.plan .d{background:#c4b5fd}
 .chip.seq{background:var(--accent-soft);color:var(--accent)} .chip.seq .d{background:var(--accent)}
 .chip.wait{background:var(--wait-soft);color:var(--wait)} .chip.wait .d{background:var(--wait)}
 .chip.reply{background:var(--ok-soft);color:var(--ok)} .chip.reply .d{background:var(--ok)}
@@ -183,6 +185,27 @@ textarea.body{min-height:150px;line-height:1.55;white-space:pre-wrap;font-size:1
 .agenda-row:hover{border-color:var(--faint)}
 .agenda-row .az{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agenda-row .when{font-size:12px;color:var(--muted);white-space:nowrap}
+
+/* planning */
+.load-strip{display:flex;gap:8px;align-items:stretch}
+.load-cell{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:6px 4px;border-radius:9px}
+.load-cell.today{background:var(--accent-soft)}
+.load-d{font-size:11px;color:var(--muted);text-align:center;text-transform:capitalize;line-height:1.2}
+.load-cell.today .load-d{color:var(--accent)}
+.load-bar-wrap{width:26px;height:70px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;display:flex;align-items:flex-end;overflow:hidden}
+.load-bar{width:100%;background:var(--accent);border-radius:0 0 5px 5px;min-height:2px;transition:height .2s}
+.load-bar.over{background:var(--late)}
+.load-n{font-size:12px;font-weight:700}
+.load-n.over{color:var(--late)}
+.plan-bar{padding:12px 16px;margin-bottom:14px;display:flex;flex-direction:column;gap:10px}
+.plan-bar-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.plan-sel-info{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.plan-sel-info b{color:var(--accent);font-size:15px}
+.plan-group{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
+.plan-lbl{font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--faint);margin-right:2px}
+.plan-bar input[type=date],.plan-bar input[type=number]{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:6px 9px}
+.table-wrap input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:var(--accent)}
+.table-wrap input[type=date]{background:var(--surface-2);border:1px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12px}
 
 /* calendar grid */
 .cal-bar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
@@ -435,24 +458,28 @@ function nextAction(c){
   const cad = state.cadence[step];
   let due;
   if(step===0){
-    // not yet sent: due now (or first workday)
-    due = c.anchorDate ? nextWorkday(addDays(parseD(c.anchorDate),0)) : nextWorkday(today());
+    // prima email: parte solo se PIANIFICATA
+    if(!c.scheduledDate) return null;            // backlog: da pianificare, non in coda
+    due = nextWorkday(parseD(c.scheduledDate));
   } else {
     if(!c.anchorDate){ due = nextWorkday(today()); }
     else due = nextWorkday(addDays(parseD(c.anchorDate), cad.offset));
   }
   return {dueDate:due, stepIndex:step, label:cad.nome, cad};
 }
+function isUnplanned(c){return !c.haRisposto && (c.step||0)===0 && !c.scheduledDate}
 function statusOf(c){
   if(c.haRisposto) return {key:'reply',label:'Ha risposto'};
   if((c.step||0)>=state.cadence.length) return {key:'done',label:'Sequenza conclusa'};
   if(c.fermato) return {key:'stop',label:'Fermato'};
+  if(isUnplanned(c)) return {key:'plan',label:'Da pianificare'};
   const na = nextAction(c);
   if(!na) return {key:'done',label:'Concluso'};
   const t=today();
   if((c.step||0)===0){
-    if(na.dueDate<=t) return {key:'da',label:'Da inviare'};
-    return {key:'da',label:'Da inviare'};
+    if(na.dueDate<t) return {key:'late',label:'In ritardo'};
+    if(sameDay(na.dueDate,t)) return {key:'today',label:'Da inviare oggi'};
+    return {key:'wait',label:'Pianificato '+fmtD(na.dueDate)};
   }
   // already in sequence (sent at least email1)
   if(na.dueDate<t) return {key:'late',label:'In ritardo'};
@@ -472,7 +499,7 @@ function dueToday(c){ // azione prevista esattamente oggi (incluse le prime emai
 function isLate(c){
   if(c.haRisposto) return false;
   const na=nextAction(c); if(!na) return false;
-  return na.dueDate<today() && (c.step||0)>0;
+  return na.dueDate<today();
 }
 
 /* ---------- contact factory ---------- */
@@ -483,7 +510,7 @@ function mkContact(o){
     ruolo:o.ruolo||'', settore:o.settore||'', tipoAsset:o.tipoAsset||'',
     oggettoBase:o.oggettoBase||'', corpoBase:o.corpoBase||'',
     disiscrizione:o.disiscrizione||state.templates.disiscrizione,
-    step:0, anchorDate:null, dataUltimoInvio:null, haRisposto:false, fermato:false,
+    step:0, scheduledDate:null, anchorDate:null, dataUltimoInvio:null, haRisposto:false, fermato:false,
     threadId:null, messageId:null,
     drafts:{}, history:[],
   };
@@ -1026,6 +1053,7 @@ function handleFile(file){
    ======================================================= */
 const NAV=[
   {id:'dashboard',label:'Dashboard',icon:'M3 3v18h18 M7 14l3-3 3 3 5-6'},
+  {id:'pianifica',label:'Pianificazione',icon:'M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18 M8 14h2 M14 14h2 M8 18h2'},
   {id:'coda',label:'Coda invio',icon:'M22 2 11 13 M22 2l-7 20-4-9-9-4 20-7z'},
   {id:'contatti',label:'Contatti',icon:'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75'},
   {id:'calendario',label:'Calendario',icon:'M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18'},
@@ -1033,9 +1061,11 @@ const NAV=[
 function renderNav(){
   const todayN=state.contacts.filter(dueToday).length;
   const late=state.contacts.filter(isLate).length;
+  const backlog=state.contacts.filter(isUnplanned).length;
   document.getElementById('nav').innerHTML=NAV.map(n=>{
     let badge='';
     if(n.id==='coda'&&(todayN||late)) badge=`<span class="badge${late?' late':''}">${todayN||late}</span>`;
+    if(n.id==='pianifica'&&backlog) badge=`<span class="badge" style="background:#7c3aed">${backlog}</span>`;
     return `<button class="${state.view===n.id?'active':''}" onclick="go('${n.id}')">
       <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${n.icon}"/></svg>
       <span>${n.label}</span>${badge}</button>`;
@@ -1091,7 +1121,7 @@ function renderConn(){
 function go(v){state.view=v;state.search='';state.filter='tutti';closeRail();render()}
 function render(){
   renderNav();renderConn();renderSpend();
-  const titles={dashboard:'Dashboard',coda:'Coda invio',contatti:'Contatti',calendario:'Calendario'};
+  const titles={dashboard:'Dashboard',pianifica:'Pianificazione',coda:'Coda invio',contatti:'Contatti',calendario:'Calendario'};
   document.getElementById('viewTitle').textContent=titles[state.view];
   const ta=document.getElementById('topActions');
   ta.innerHTML=`
@@ -1109,9 +1139,11 @@ function render(){
   const C=document.getElementById('content');
   if(state.view==='dashboard')C.innerHTML=viewDashboard();
   else if(state.view==='coda')C.innerHTML=viewCoda();
+  else if(state.view==='pianifica')C.innerHTML=viewPianifica();
   else if(state.view==='contatti')C.innerHTML=viewContatti();
   else if(state.view==='calendario')C.innerHTML=viewCalendario();
   if(state.view==='coda')bindCodaInputs();
+  if(state.view==='pianifica')bindPianifica();
 }
 
 /* ---------- DASHBOARD ---------- */
@@ -1174,6 +1206,139 @@ function viewDashboard(){
   `;
 }
 
+/* ---------- PIANIFICAZIONE ---------- */
+let _planSel=new Set();
+function viewPianifica(){
+  if(!state.contacts.length) return emptyState();
+  const t=today();
+  const cap=state.config.maxAlGiorno||10;
+  const backlog=state.contacts.filter(isUnplanned);
+  const planned=state.contacts.filter(c=>!c.haRisposto && (c.step||0)===0 && c.scheduledDate)
+    .sort((a,b)=>parseD(a.scheduledDate)-parseD(b.scheduledDate));
+  // carico per i prossimi giorni lavorativi (tutti gli step, non solo email 1)
+  const loadByDay={};
+  state.contacts.forEach(c=>{const na=nextAction(c);if(na&&na.dueDate>=t){const k=isoD(na.dueDate);loadByDay[k]=(loadByDay[k]||0)+1;}});
+  const strip=[];let d=new Date(t),guard=0;
+  while(strip.length<10 && guard<40){ if(!(state.config.saltaWeekend&&(d.getDay()===0||d.getDay()===6))) strip.push(new Date(d)); d=addDays(d,1);guard++; }
+  const defStart=isoD(nextWorkday(addDays(t,1)));
+
+  // strip carico
+  const stripHtml=strip.map(dd=>{const k=isoD(dd);const n=loadByDay[k]||0;const over=n>cap;const isToday=sameDay(dd,t);
+    return `<div class="load-cell${isToday?' today':''}" title="${n} invii previsti">
+      <div class="load-d">${dd.toLocaleDateString('it-IT',{weekday:'short'})}<br><b>${dd.getDate()}/${dd.getMonth()+1}</b></div>
+      <div class="load-bar-wrap"><div class="load-bar${over?' over':''}" style="height:${Math.min(100,n/Math.max(cap,1)*100)}%"></div></div>
+      <div class="load-n${over?' over':''}">${n}</div>
+    </div>`;}).join('');
+
+  if(!backlog.length && !planned.length){
+    return `<div class="empty"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18"/></svg>
+      <h4>Tutto pianificato</h4><p>Non ci sono contatti da pianificare. Importa nuovi lead per assegnare le date di contatto.</p>
+      <button class="btn primary" onclick="pickFile()">Importa contatti</button></div>`;
+  }
+
+  let html=`
+  <div class="section-h" style="margin-top:0"><h3>Carico per giorno</h3><span class="count">limite ${cap}/giorno</span><div class="line"></div></div>
+  <div class="card" style="padding:14px"><div class="load-strip">${stripHtml}</div></div>`;
+
+  if(backlog.length){
+    html+=`
+    <div class="card plan-bar">
+      <div class="plan-bar-row">
+        <div class="plan-sel-info"><b id="plan-count">0</b> selezionati su ${backlog.length}
+          <button class="btn sm ghost" onclick="planSelAll(true)">Tutti</button>
+          <button class="btn sm ghost" onclick="planSelAll(false)">Nessuno</button>
+        </div>
+      </div>
+      <div class="plan-bar-row">
+        <div class="plan-group">
+          <span class="plan-lbl">Assegna a una data</span>
+          <input type="date" id="plan-date" value="${defStart}">
+          <button class="btn sm primary" onclick="planSelected(document.getElementById('plan-date').value)">Pianifica selezionati</button>
+          <button class="btn sm ghost" onclick="planSelected('${isoD(t)}')">Oggi</button>
+          <button class="btn sm ghost" onclick="planSelected('${defStart}')">Domani</button>
+        </div>
+      </div>
+      <div class="plan-bar-row">
+        <div class="plan-group">
+          <span class="plan-lbl">Distribuzione automatica</span>
+          <input type="number" id="plan-perday" value="${cap}" style="width:64px"> al giorno, da
+          <input type="date" id="plan-autostart" value="${defStart}">
+          <button class="btn sm primary" onclick="planAuto(false)">Distribuisci selezionati</button>
+          <button class="btn sm" onclick="planAuto(true)">Distribuisci tutto il backlog</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-h"><h3>Da pianificare</h3><span class="count">${backlog.length}</span><div class="line"></div></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:34px"><input type="checkbox" id="plan-allcheck" onclick="planSelAll(this.checked)"></th>
+          <th>Azienda</th><th>Email</th><th>Sede</th></tr></thead>
+        <tbody>
+        ${backlog.map(c=>`<tr onclick="if(event.target.tagName!=='INPUT'){const cb=this.querySelector('input');cb.checked=!cb.checked;togglePlanSel('${c.id}',cb.checked)}">
+          <td><input type="checkbox" data-pid="${c.id}" ${_planSel.has(c.id)?'checked':''} onclick="togglePlanSel('${c.id}',this.checked)"></td>
+          <td class="az">${esc(c.azienda)}</td>
+          <td class="email-cell">${esc(c.email)}</td>
+          <td class="email-cell">${esc(c.sede||'—')}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
+
+  if(planned.length){
+    html+=`<div class="section-h"><h3>Già pianificati (prima email)</h3><span class="count">${planned.length}</span><div class="line"></div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Azienda</th><th>Email</th><th>Data prevista</th><th></th></tr></thead>
+      <tbody>
+      ${planned.map(c=>{const dd=parseD(c.scheduledDate);const lateP=dd<t;
+        return `<tr>
+          <td class="az">${esc(c.azienda)}</td>
+          <td class="email-cell">${esc(c.email)}</td>
+          <td><span class="chip ${lateP?'late':'wait'}"><span class="d"></span>${fmtDLong(dd)}</span></td>
+          <td style="text-align:right">
+            <input type="date" value="${c.scheduledDate}" onchange="rescheduleOne('${c.id}',this.value)" style="margin-right:6px">
+            <button class="btn sm ghost danger" onclick="unplan('${c.id}')">Rimetti in backlog</button>
+          </td>
+        </tr>`;}).join('')}
+      </tbody></table></div>`;
+  }
+  return html;
+}
+function bindPianifica(){ updatePlanCount(); }
+function updatePlanCount(){const el=document.getElementById('plan-count');if(el)el.textContent=_planSel.size;}
+function togglePlanSel(id,on){ if(on)_planSel.add(id);else _planSel.delete(id); updatePlanCount(); }
+function planSelAll(on){
+  const backlog=state.contacts.filter(isUnplanned);
+  _planSel=new Set(on?backlog.map(c=>c.id):[]);
+  render();
+}
+function planSelected(dateISO){
+  if(!dateISO){toast('Scegli una data','warn');return}
+  if(!_planSel.size){toast('Seleziona prima dei contatti','warn');return}
+  let n=0;
+  state.contacts.forEach(c=>{ if(_planSel.has(c.id) && isUnplanned(c)){ c.scheduledDate=dateISO; n++; } });
+  _planSel.clear();persist();render();
+  toast(`${n} contatti pianificati per ${fmtDLong(parseD(dateISO))}`,'ok');
+}
+function planAuto(all){
+  const perDay=Math.max(1, +(document.getElementById('plan-perday')?.value)||state.config.maxAlGiorno||10);
+  const startISO=document.getElementById('plan-autostart')?.value || isoD(nextWorkday(addDays(today(),1)));
+  let pool=state.contacts.filter(isUnplanned);
+  if(!all) pool=pool.filter(c=>_planSel.has(c.id));
+  if(!pool.length){toast(all?'Backlog vuoto':'Nessun contatto selezionato','warn');return}
+  let day=nextWorkday(parseD(startISO)); let cnt=0, days=0;
+  pool.forEach(c=>{
+    c.scheduledDate=isoD(day); cnt++;
+    if(cnt>=perDay){ cnt=0; days++; day=nextWorkday(addDays(day,1)); }
+  });
+  _planSel.clear();persist();render();
+  toast(`${pool.length} contatti distribuiti (${perDay}/giorno)`,'ok');
+}
+function rescheduleOne(id,dateISO){const c=state.contacts.find(x=>x.id===id);if(c&&dateISO){c.scheduledDate=dateISO;persist();render();toast('Data aggiornata','ok')}}
+function unplan(id){const c=state.contacts.find(x=>x.id===id);if(c){c.scheduledDate=null;persist();render();toast('Rimesso in backlog','warn')}}
+
 /* ---------- CODA INVIO ---------- */
 let _showLate=false;
 function toggleLate(){_showLate=!_showLate;render()}
@@ -1183,9 +1348,13 @@ function viewCoda(){
   const todayList=state.contacts.filter(dueToday).sort((a,b)=>(a.step||0)-(b.step||0));
   const lateList=state.contacts.filter(isLate).sort((a,b)=>nextAction(a).dueDate-nextAction(b).dueDate);
 
-  if(!todayList.length && !lateList.length) return `<div class="empty"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
-    <h4>Niente da inviare oggi</h4><p>Nessun contatto previsto per oggi. I prossimi follow-up compariranno qui alla data prevista.</p>
-    <button class="btn primary" onclick="go('calendario')">Vedi il calendario</button></div>`;
+  if(!todayList.length && !lateList.length){
+    const backlog=state.contacts.filter(isUnplanned).length;
+    return `<div class="empty"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
+    <h4>Niente da inviare oggi</h4>
+    <p>${backlog?`Hai <b>${backlog} contatti da pianificare</b>: assegna loro una data nella sezione Pianificazione e compariranno qui nel giorno scelto.`:'Nessun contatto previsto per oggi. I prossimi follow-up compariranno qui alla data prevista.'}</p>
+    <button class="btn primary" onclick="go('${backlog?'pianifica':'calendario'}')">${backlog?'Vai alla pianificazione →':'Vedi il calendario'}</button></div>`;
+  }
 
   let html='';
   // banner ritardi (fuori dal "solo oggi", ma recuperabili a richiesta)
@@ -1500,8 +1669,10 @@ function confirmImport(){
     }));
     added++;
   });
-  persist();closeModal();render();
-  toast(`${added} contatti importati${skipped?`, ${skipped} saltati`:''}`,'ok');
+  persist();closeModal();
+  if(added){state.view='pianifica';}
+  render();
+  toast(`${added} contatti importati — ora pianificali`,'ok');
   if(googleReady()&&state.config.sheetId)syncToSheet().catch(()=>{});
 }
 
