@@ -244,6 +244,7 @@ textarea.body{min-height:150px;line-height:1.55;white-space:pre-wrap;font-size:1
 
 .spinner{width:15px;height:15px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
+.spinning svg{animation:spin .6s linear infinite}
 
 .kbd{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;padding:1px 5px;color:var(--muted)}
 .helptip{font-size:12px;color:var(--faint);line-height:1.5}
@@ -829,6 +830,35 @@ async function loadTabs(){
   }catch(e){toast('Lettura fogli fallita: '+e.message,'err')}
 }
 function copySupaSQL(){navigator.clipboard.writeText(SUPA_SQL).then(()=>toast('SQL copiato','ok')).catch(()=>toast('Copia non riuscita','err'))}
+
+/* ---- aggiorna & reset ---- */
+async function refreshAll(){
+  const btn=document.getElementById('btnRefresh');
+  if(btn)btn.classList.add('spinning');
+  try{
+    if(supaReady()) await supaLoad();
+    if(googleReady() && state.config.sheetId) await pullFromSheet({silent:true});
+    if(!supaReady() && !(googleReady()&&state.config.sheetId)) toast('Niente da aggiornare: collega Supabase o un foglio Google','warn');
+    else toast('Dati aggiornati','ok');
+  }catch(e){toast('Aggiornamento: '+e.message,'err')}
+  if(btn)btn.classList.remove('spinning');
+  render();
+}
+async function resetAll(){
+  if(!confirm('RESETTA TUTTO: elimina tutti i contatti, le bozze e lo storico invii. Le credenziali (Google, Supabase, Anthropic) restano. Continuare?'))return;
+  let wipeRemote=false;
+  if(supaReady()) wipeRemote=confirm('Vuoi svuotare anche il database condiviso Supabase?\n\nOK = cancella per tutto il team.\nAnnulla = pulisci solo questo dispositivo (i dati torneranno dal database al prossimo aggiornamento).');
+  if(wipeRemote){
+    try{await supa.from('contacts').delete().neq('id','');}catch(e){toast('Supabase: '+e.message,'err')}
+  }
+  _suppressPush=true;
+  state.contacts=[];
+  state.usage={input:0,output:0,gen:0,since:new Date().toISOString().slice(0,10)};
+  save(LS.contacts,state.contacts);save(LS.usage,state.usage);
+  _suppressPush=false;
+  closeModal();render();renderSpend();
+  toast(wipeRemote?'Tutto resettato (anche sul database)':'Dati locali resettati','ok');
+}
 function showSupaSQL(){
   modal(`<div class="modal" onclick="event.stopPropagation()">
     <div class="modal-h"><h3>SQL di setup Supabase</h3><div class="x" onclick="openSettings()">✕</div></div>
@@ -1016,9 +1046,11 @@ function render(){
   const titles={dashboard:'Dashboard',coda:'Coda invio',contatti:'Contatti',calendario:'Calendario'};
   document.getElementById('viewTitle').textContent=titles[state.view];
   const ta=document.getElementById('topActions');
-  ta.innerHTML='';
+  ta.innerHTML=`
+      <button class="btn sm ghost" id="btnRefresh" onclick="refreshAll()" title="Aggiorna dati dal database e dal foglio">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Aggiorna</button>`;
   if(state.contacts.length){
-    ta.innerHTML=`
+    ta.innerHTML+=`
       <button class="btn sm ghost" onclick="checkReplies()" title="Controlla risposte nei thread">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Risposte</button>
       <button class="btn sm ghost" onclick="syncToSheet()" title="Importa i nuovi lead dal foglio e salva lo stato">
@@ -1490,7 +1522,10 @@ function openSettings(){
       <label class="toggle ${cf.autoStopReply?'on':''}" id="set-stop"><span class="sw"></span><span>Ferma i follow-up quando il contatto risponde</span></label>
     </div>
     <div class="modal-f" style="justify-content:space-between">
-      <button class="btn sm ghost" onclick="openCadence()">Cadenza & template →</button>
+      <div style="display:flex;gap:9px">
+        <button class="btn sm ghost" onclick="openCadence()">Cadenza & template →</button>
+        <button class="btn sm ghost danger" onclick="resetAll()">Resetta tutto</button>
+      </div>
       <div style="display:flex;gap:9px">
         <button class="btn" onclick="closeModal()">Annulla</button>
         <button class="btn primary" onclick="saveSettings()">Salva</button>
