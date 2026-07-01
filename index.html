@@ -522,6 +522,7 @@ function mkContact(o){
     id: o.id || ('c'+Math.random().toString(36).slice(2,9)),
     n:o.n||'', azienda:o.azienda||'', sede:o.sede||'', email:(o.email||'').trim(),
     ruolo:o.ruolo||'', settore:o.settore||'', tipoAsset:o.tipoAsset||'',
+    descrizione:o.descrizione||'', sitoWeb:o.sitoWeb||'',
     oggettoBase:o.oggettoBase||'', corpoBase:o.corpoBase||'',
     disiscrizione:o.disiscrizione||state.templates.disiscrizione,
     step:0, scheduledDate:null, anchorDate:null, dataUltimoInvio:null, haRisposto:false, fermato:false,
@@ -711,7 +712,7 @@ async function checkReplies(){
 /* =======================================================
    GOOGLE SHEET SYNC (stato contatti)
    ======================================================= */
-const SHEET_COLS=['id','azienda','sede','email','ruolo','settore','tipo_asset','oggetto','corpo','stato','step','data_ultimo_invio','anchor_date','ha_risposto','thread_id','message_id'];
+const SHEET_COLS=['id','azienda','sede','email','ruolo','settore','descrizione','sito_web','tipo_asset','oggetto','corpo','stato','step','data_ultimo_invio','anchor_date','ha_risposto','thread_id','message_id'];
 function colLetter(n){return String.fromCharCode(64+n)} // 16 -> 'P'
 const LASTCOL=colLetter(SHEET_COLS.length);
 let _autoSyncTimer=null;
@@ -738,7 +739,8 @@ async function ensureSheet(){
 function contactToRow(c){
   const st=statusOf(c).label;
   const d0=getDraft(c,0);
-  return [c.id,c.azienda,c.sede,c.email,c.ruolo,c.settore,c.tipoAsset,
+  return [c.id,c.azienda,c.sede,c.email,c.ruolo,c.settore,
+    c.descrizione||'', c.sitoWeb||'', c.tipoAsset,
     c.oggettoBase||d0.oggetto||'', c.corpoBase||'',
     st,String(c.step||0),c.dataUltimoInvio||'',c.anchorDate||'',c.haRisposto?'sì':'no',c.threadId||'',c.messageId||''];
 }
@@ -757,23 +759,38 @@ async function pullFromSheet(opts={}){
   if(rows.length<2) return 0;
   const map=guessMap(rows[0]);
   if(map.email==null){if(!silent)toast('Nel foglio non trovo una colonna email','warn');return 0}
-  const have=new Set(state.contacts.map(c=>(c.email||'').toLowerCase()));
-  let added=0;
+  const byEmail=new Map(state.contacts.map(c=>[(c.email||'').toLowerCase(),c]));
+  let added=0, updated=0;
   for(let i=1;i<rows.length;i++){
     const row=rows[i];const g=f=>map[f]!=null?String(row[map[f]]??'').trim():'';
     const email=g('email');
-    if(!email||!email.includes('@')||have.has(email.toLowerCase())) continue;
-    have.add(email.toLowerCase());
-    state.contacts.push(mkContact({
+    if(!email||!email.includes('@')) continue;
+    const key=email.toLowerCase();
+    const existing=byEmail.get(key);
+    if(existing){
+      // aggiorna i campi di ricerca dal foglio (senza toccare lo stato)
+      let ch=false;
+      const desc=g('descrizione'), web=g('sitoWeb');
+      if(desc && desc!==existing.descrizione){existing.descrizione=desc;ch=true;}
+      if(web && web!==existing.sitoWeb){existing.sitoWeb=web;ch=true;}
+      // riempi i campi vuoti se il foglio ne ha
+      ['azienda','sede','ruolo','settore','tipoAsset'].forEach(f=>{const v=g(f);if(v&&!existing[f]){existing[f]=v;ch=true;}});
+      if(ch)updated++;
+      continue;
+    }
+    byEmail.set(key,true);
+    const c=mkContact({
       azienda:g('azienda'),sede:g('sede'),email,ruolo:g('ruolo'),settore:g('settore'),
+      descrizione:g('descrizione'),sitoWeb:g('sitoWeb'),
       tipoAsset:g('tipoAsset'),oggettoBase:g('oggetto'),corpoBase:g('corpo'),
       disiscrizione:g('disiscrizione')||state.templates.disiscrizione,
-    }));
+    });
+    state.contacts.push(c);byEmail.set(key,c);
     added++;
   }
-  if(added){persist();render()}
-  if(!silent) toast(added?`${added} nuovi contatti importati dal foglio`:'Foglio già allineato, nessun nuovo contatto','ok');
-  else if(added) toast(`${added} nuovi contatti dal foglio`,'ok');
+  if(added||updated){persist();render()}
+  if(!silent) toast(added||updated?`${added} nuovi · ${updated} aggiornati dal foglio`:'Foglio già allineato','ok');
+  else if(added||updated) toast(`${added} nuovi · ${updated} aggiornati`,'ok');
   return added;
 }
 
@@ -1015,7 +1032,11 @@ async function generateEmail(c, step){
 - Sede: ${c.sede||'n/d'}
 - Ruolo/Contatto: ${c.ruolo||'n/d'}
 - Settore: ${c.settore||'n/d'}
+- Sito web: ${c.sitoWeb||'n/d'}
 - Tipo asset/offerta: ${c.tipoAsset||'automazione dei processi (preventivi, ordini, listini)'}
+${c.descrizione?`
+DESCRIZIONE AZIENDA (informazione reale e verificata su cui basare la personalizzazione — usala per un aggancio concreto e specifico, senza copiarla parola per parola):
+${c.descrizione}`:''}
 
 Step da scrivere: "${cad.nome}".
 Angolo/obiettivo di questo step: ${cad.angolo}
@@ -1061,6 +1082,8 @@ const HEADER_MAP={
   nome:['nome','contatto','referente','name','persona'],
   ruolo:['ruolo','role','posizione','carica','title','qualifica'],
   settore:['settore','industry','categoria','comparto','ambito'],
+  descrizione:['descrizione azienda','descrizione','description','note azienda','info azienda','profilo','about','bio'],
+  sitoWeb:['sito web','sito internet','sito','website','web','url','homepage','pagina web'],
   tipoAsset:['tipo asset','asset','offerta','offer','prodotto','servizio','proposta'],
   oggetto:['oggetto','subject','titolo'],
   corpo:['corpo email 1','corpo','body','testo','email 1','messaggio','corpo email'],
@@ -1680,6 +1703,7 @@ function openImportModal(headers, rows, sheetName, allSheets){
   const fields=[
     ['email','Email *','obbligatorio'],['azienda','Azienda',''],['sede','Sede / città',''],
     ['nome','Referente',''],['ruolo','Ruolo',''],['settore','Settore',''],
+    ['descrizione','Descrizione azienda','usata dall\'AI'],['sitoWeb','Sito web',''],
     ['tipoAsset','Tipo asset / offerta','usato dall\'AI'],['oggetto','Oggetto email 1',''],
     ['corpo','Corpo email 1','bozza di partenza'],['disiscrizione','Disiscrizione','']
   ];
@@ -1703,7 +1727,7 @@ function openImportModal(headers, rows, sheetName, allSheets){
 }
 function confirmImport(){
   const {headers,rows}=_importData;
-  const fields=['email','azienda','sede','nome','ruolo','settore','tipoAsset','oggetto','corpo','disiscrizione','n'];
+  const fields=['email','azienda','sede','nome','ruolo','settore','descrizione','sitoWeb','tipoAsset','oggetto','corpo','disiscrizione','n'];
   const sel={};fields.forEach(f=>{const el=document.getElementById('map-'+f);sel[f]=el?(el.value===''?-1:+el.value):-1});
   const dedup=document.getElementById('dedup-tog').classList.contains('on');
   const seen=new Set(state.contacts.map(c=>c.email.toLowerCase()));
@@ -1715,7 +1739,7 @@ function confirmImport(){
     if(email)seen.add(email.toLowerCase());
     state.contacts.push(mkContact({
       n:g('n'),azienda:g('azienda'),sede:g('sede'),email,ruolo:g('ruolo'),
-      settore:g('settore'),tipoAsset:g('tipoAsset'),
+      settore:g('settore'),descrizione:g('descrizione'),sitoWeb:g('sitoWeb'),tipoAsset:g('tipoAsset'),
       oggettoBase:g('oggetto'),corpoBase:g('corpo'),
       disiscrizione:g('disiscrizione')||state.templates.disiscrizione,
     }));
@@ -1745,6 +1769,8 @@ function openContact(id){
         <div class="form-row"><label>Ruolo / referente</label><input value="${escAttr(c.ruolo)}" onchange="editC('${id}','ruolo',this.value)"></div>
         <div class="form-row"><label>Settore</label><input value="${escAttr(c.settore)}" onchange="editC('${id}','settore',this.value)"></div>
         <div class="form-row" style="grid-column:1/3"><label>Tipo asset / offerta</label><input value="${escAttr(c.tipoAsset)}" onchange="editC('${id}','tipoAsset',this.value)"></div>
+        <div class="form-row" style="grid-column:1/3"><label>Sito web</label><input value="${escAttr(c.sitoWeb||'')}" placeholder="https://..." onchange="editC('${id}','sitoWeb',this.value)"></div>
+        <div class="form-row" style="grid-column:1/3"><label>Descrizione azienda <span class="hint">(usata dall'AI per personalizzare)</span></label><textarea onchange="editC('${id}','descrizione',this.value)" placeholder="Note e approfondimenti sull'azienda...">${esc(c.descrizione||'')}</textarea></div>
       </div>
       <div style="display:flex;gap:18px;font-size:13px;padding:10px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
         <div><span class="email-cell">Step</span><br><b class="mono">${(c.step||0)}/${state.cadence.length}</b></div>
